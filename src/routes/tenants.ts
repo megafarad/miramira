@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import type { TenantsService } from '../services/tenants.js';
-import { Envelope, ErrorResponse } from '../schemas/envelopes.js';
+import { Envelope, ErrorResponse, Page, PaginationQuery } from '../schemas/envelopes.js';
 import { TenantDto } from '../schemas/dtos.js';
 
 const TenantIdParams = z.object({ id: z.string().uuid() });
@@ -94,8 +94,10 @@ export const tenantsRoutes = (deps: TenantsRoutesDeps): FastifyPluginAsync => {
           tags: [TAG],
           summary: 'List immediate children of a tenant',
           params: TenantIdParams,
+          querystring: PaginationQuery,
           response: {
-            200: Envelope(z.array(TenantDto)),
+            200: Page(TenantDto),
+            400: ErrorResponse,
             401: ErrorResponse,
             403: ErrorResponse,
             404: ErrorResponse,
@@ -107,8 +109,8 @@ export const tenantsRoutes = (deps: TenantsRoutesDeps): FastifyPluginAsync => {
         ],
       },
       async (req) => {
-        const children = await deps.tenants.listChildren(req.params.id);
-        return { data: children };
+        const { items, nextCursor } = await deps.tenants.pageChildren(req.params.id, req.query);
+        return { data: items, pageInfo: { nextCursor, hasMore: nextCursor !== null } };
       },
     );
 

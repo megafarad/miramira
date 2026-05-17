@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import type { RolesService } from '../services/roles.js';
 import type { PermissionsService } from '../services/permissions.js';
-import { Envelope, ErrorResponse } from '../schemas/envelopes.js';
+import { Envelope, ErrorResponse, Page, PaginationQuery } from '../schemas/envelopes.js';
 import { RoleDto, RoleWithScopesDto } from '../schemas/dtos.js';
 
 const TenantIdParams = z.object({ tenantId: z.string().uuid() });
@@ -86,8 +86,10 @@ export const rolesRoutes = (deps: RolesRoutesDeps): FastifyPluginAsync => {
           tags: [TAG],
           summary: 'List roles defined at a tenant',
           params: TenantIdParams,
+          querystring: PaginationQuery,
           response: {
-            200: Envelope(z.array(RoleDto)),
+            200: Page(RoleDto),
+            400: ErrorResponse,
             401: ErrorResponse,
             403: ErrorResponse,
           },
@@ -101,8 +103,11 @@ export const rolesRoutes = (deps: RolesRoutesDeps): FastifyPluginAsync => {
         ],
       },
       async (req) => {
-        const roles = await deps.roles.listByTenant(req.params.tenantId);
-        return { data: roles };
+        const { items, nextCursor } = await deps.roles.pageByTenant(
+          req.params.tenantId,
+          req.query,
+        );
+        return { data: items, pageInfo: { nextCursor, hasMore: nextCursor !== null } };
       },
     );
 

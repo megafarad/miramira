@@ -2,6 +2,8 @@ import { and, eq, gt, isNull, ne, or, sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client.js';
 import { newId } from '../lib/ids.js';
 import { roleBindings, roleScopes, type RoleBinding } from '../db/schema.js';
+import type { PaginationOpts, PageResult } from '../schemas/envelopes.js';
+import { paginate } from '../lib/pagination.js';
 
 export interface CreateBindingInput {
   principalId: string;
@@ -16,12 +18,22 @@ export interface ListBindingsOptions {
   activeOnly?: boolean;
 }
 
+export interface PageBindingsFilters {
+  tenantId: string;
+  principalId?: string;
+  activeOnly?: boolean;
+}
+
 export interface RoleBindingsRepo {
   create(input: CreateBindingInput): Promise<RoleBinding>;
   findById(id: string): Promise<RoleBinding | undefined>;
   listForPrincipal(principalId: string, opts?: ListBindingsOptions): Promise<RoleBinding[]>;
   listForTenant(tenantId: string, opts?: ListBindingsOptions): Promise<RoleBinding[]>;
   listForRole(roleId: string, opts?: ListBindingsOptions): Promise<RoleBinding[]>;
+  pageBindings(
+    filters: PageBindingsFilters,
+    opts: PaginationOpts,
+  ): Promise<PageResult<RoleBinding>>;
   revoke(id: string): Promise<RoleBinding | undefined>;
   /**
    * Active bindings (not revoked, not expired) where the bound role grants
@@ -114,6 +126,26 @@ export class RoleBindingsRepository implements RoleBindingsRepo {
           ? and(eq(roleBindings.roleId, roleId), activePredicate())
           : eq(roleBindings.roleId, roleId),
       );
+  }
+
+  async pageBindings(
+    filters: PageBindingsFilters,
+    opts: PaginationOpts,
+  ): Promise<PageResult<RoleBinding>> {
+    const activeOnly = filters.activeOnly ?? true;
+    const where = and(
+      eq(roleBindings.tenantId, filters.tenantId),
+      filters.principalId ? eq(roleBindings.principalId, filters.principalId) : undefined,
+      activeOnly ? activePredicate() : undefined,
+      opts.cursor ? gt(roleBindings.id, opts.cursor) : undefined,
+    );
+    const rows = await this.db
+      .select()
+      .from(roleBindings)
+      .where(where)
+      .orderBy(roleBindings.id)
+      .limit(opts.limit + 1);
+    return paginate(rows, opts.limit, (r) => r.id);
   }
 
   async revoke(id: string): Promise<RoleBinding | undefined> {

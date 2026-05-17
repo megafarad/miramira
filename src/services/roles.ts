@@ -11,6 +11,7 @@ import { NotFoundError } from './errors.js';
 import { wrapConflict } from './conflict.js';
 import { AUDIT_ACTIONS, AUDIT_TARGETS } from './audit-actions.js';
 import type { AuditRequestContext } from '../plugins/audit.js';
+import type { PaginationOpts, PageResult } from '../schemas/envelopes.js';
 
 export interface UpdateRoleInput {
   name?: string;
@@ -21,7 +22,7 @@ export interface RolesService {
   create(input: CreateRoleInput, audit?: AuditRequestContext): Promise<Role>;
   get(id: string): Promise<Role>;
   getWithScopes(id: string): Promise<RoleWithScopes>;
-  listByTenant(tenantId: string): Promise<Role[]>;
+  pageByTenant(tenantId: string, opts: PaginationOpts): Promise<PageResult<Role>>;
   addScopes(roleId: string, scopeIds: string[], audit?: AuditRequestContext): Promise<void>;
   removeScope(roleId: string, scopeId: string, audit?: AuditRequestContext): Promise<void>;
   update(id: string, patch: UpdateRoleInput, audit?: AuditRequestContext): Promise<Role>;
@@ -78,8 +79,8 @@ export class RolesServiceImpl implements RolesService {
     return row;
   }
 
-  async listByTenant(tenantId: string): Promise<Role[]> {
-    return new RolesRepository(this.deps.db).listForTenant(tenantId);
+  async pageByTenant(tenantId: string, opts: PaginationOpts): Promise<PageResult<Role>> {
+    return new RolesRepository(this.deps.db).pageForTenant(tenantId, opts);
   }
 
   async addScopes(

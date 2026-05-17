@@ -177,9 +177,10 @@ export async function buildTestApp(): Promise<TestApp> {
 
     async grantAdminAt(principalId: string, tenantId: string = MASTER_TENANT_ID) {
       // Create binding only if a fresh active one doesn't already exist;
-      // otherwise the unique index would throw.
-      const all = await services.bindings.list({ tenantId, principalId });
-      const hasAdmin = all.some((b) => b.roleId === SYSTEM_ROLE_ADMIN_ID && !b.revokedAt);
+      // otherwise the unique index would throw. (principal, role, tenant) is
+      // unique, so a single page with limit=10 is more than enough.
+      const page = await services.bindings.page({ tenantId, principalId }, { limit: 10 });
+      const hasAdmin = page.items.some((b) => b.roleId === SYSTEM_ROLE_ADMIN_ID && !b.revokedAt);
       if (!hasAdmin) {
         await services.bindings.create({
           principalId,

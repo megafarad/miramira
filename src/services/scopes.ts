@@ -5,6 +5,7 @@ import { NotFoundError } from './errors.js';
 import { wrapConflict } from './conflict.js';
 import { AUDIT_ACTIONS, AUDIT_TARGETS } from './audit-actions.js';
 import type { AuditRequestContext } from '../plugins/audit.js';
+import type { PaginationOpts, PageResult } from '../schemas/envelopes.js';
 
 export interface UpdateScopeInput {
   name?: string;
@@ -14,7 +15,7 @@ export interface UpdateScopeInput {
 export interface ScopesService {
   create(input: CreateScopeInput, audit?: AuditRequestContext): Promise<Scope>;
   get(id: string): Promise<Scope>;
-  listByTenant(tenantId: string): Promise<Scope[]>;
+  pageByTenant(tenantId: string, opts: PaginationOpts): Promise<PageResult<Scope>>;
   update(id: string, patch: UpdateScopeInput, audit?: AuditRequestContext): Promise<Scope>;
 }
 
@@ -54,8 +55,8 @@ export class ScopesServiceImpl implements ScopesService {
     return row;
   }
 
-  async listByTenant(tenantId: string): Promise<Scope[]> {
-    return new ScopesRepository(this.deps.db).listForTenant(tenantId);
+  async pageByTenant(tenantId: string, opts: PaginationOpts): Promise<PageResult<Scope>> {
+    return new ScopesRepository(this.deps.db).pageForTenant(tenantId, opts);
   }
 
   // Rename + description edit. No outbox event — FGA tuples are keyed by

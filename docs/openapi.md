@@ -95,6 +95,40 @@ declared shape. Use any tag you like — `tags` are free-form strings.
 - **`audit_log` table shape** — internal data model, not part of the HTTP
   contract. See [`audit-log.md`](./audit-log.md).
 
+## Pagination
+
+All list endpoints use **cursor (keyset) pagination**. The contract is uniform
+across `GET /tenants/:id/children`, `GET /tenants/:tenantId/roles`,
+`GET /tenants/:tenantId/scopes`, `GET /api-keys`, and `GET /role-bindings`.
+
+Query params:
+
+- `limit` — page size, integer in `[1, 200]`, defaults to `50`.
+- `cursor` — opaque string returned by the previous page; omit on the first
+  request. Callers should treat it as opaque even though today it is the last
+  row's UUID.
+
+Response shape:
+
+```json
+{
+  "data": [ /* up to `limit` items */ ],
+  "pageInfo": {
+    "nextCursor": "01934f...",
+    "hasMore": true
+  }
+}
+```
+
+`nextCursor` is `null` and `hasMore` is `false` on the last page. To walk a
+list, loop until `nextCursor` is null, passing the previous response's
+`nextCursor` as the next request's `cursor`.
+
+Rows are sorted by `id` ascending. Because primary keys are UUIDv7 (time-
+ordered), this corresponds to creation order — oldest first. The keyset
+scheme is stable under concurrent inserts: a row created mid-walk only appears
+in a later page if its id sorts after your current cursor.
+
 ## Wire format notes
 
 - **Timestamps** are ISO 8601 strings (`2024-01-15T12:34:56.789Z`). The

@@ -3,11 +3,11 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import type { ApiKeysService } from '../services/api-keys.js';
 import type { PermissionsService } from '../services/permissions.js';
-import { Envelope, ErrorResponse } from '../schemas/envelopes.js';
+import { Envelope, ErrorResponse, Page, PaginationQuery } from '../schemas/envelopes.js';
 import { ApiKeyDto, CreatedApiKeyDto } from '../schemas/dtos.js';
 
 const ApiKeyIdParams = z.object({ id: z.string().uuid() });
-const ListQuery = z.object({ tenantId: z.string().uuid() });
+const ListQuery = z.object({ tenantId: z.string().uuid() }).extend(PaginationQuery.shape);
 
 const CreateApiKeyBody = z.object({
   label: z.string().min(1).max(255),
@@ -83,7 +83,8 @@ export const apiKeysRoutes = (deps: ApiKeysRoutesDeps): FastifyPluginAsync => {
           summary: 'List API keys at a tenant (secrets and hashes never returned)',
           querystring: ListQuery,
           response: {
-            200: Envelope(z.array(ApiKeyDto)),
+            200: Page(ApiKeyDto),
+            400: ErrorResponse,
             401: ErrorResponse,
             403: ErrorResponse,
           },
@@ -97,9 +98,13 @@ export const apiKeysRoutes = (deps: ApiKeysRoutesDeps): FastifyPluginAsync => {
         ],
       },
       async (req) => {
-        const keys = await deps.apiKeys.listByTenant(req.query.tenantId);
+        const { tenantId, limit, cursor } = req.query;
+        const { items, nextCursor } = await deps.apiKeys.pageByTenant(tenantId, {
+          limit,
+          ...(cursor !== undefined ? { cursor } : {}),
+        });
         return {
-          data: keys.map((k) => ({
+          data: items.map((k) => ({
             id: k.id,
             label: k.label,
             tenantId: k.tenantId,
@@ -110,6 +115,7 @@ export const apiKeysRoutes = (deps: ApiKeysRoutesDeps): FastifyPluginAsync => {
             revokedAt: k.revokedAt,
             createdAt: k.createdAt,
           })),
+          pageInfo: { nextCursor, hasMore: nextCursor !== null },
         };
       },
     );

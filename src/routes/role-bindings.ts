@@ -3,16 +3,18 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import type { RoleBindingsService } from '../services/role-bindings.js';
 import type { PermissionsService } from '../services/permissions.js';
-import { Envelope, ErrorResponse } from '../schemas/envelopes.js';
+import { Envelope, ErrorResponse, Page, PaginationQuery } from '../schemas/envelopes.js';
 import { RoleBindingDto } from '../schemas/dtos.js';
 
 const BindingIdParams = z.object({ id: z.string().uuid() });
 
-const ListQuery = z.object({
-  tenantId: z.string().uuid(),
-  principalId: z.string().uuid().optional(),
-  includeRevoked: z.coerce.boolean().optional(),
-});
+const ListQuery = z
+  .object({
+    tenantId: z.string().uuid(),
+    principalId: z.string().uuid().optional(),
+    includeRevoked: z.coerce.boolean().optional(),
+  })
+  .extend(PaginationQuery.shape);
 
 const CreateBindingBody = z.object({
   principalId: z.string().uuid(),
@@ -102,7 +104,7 @@ export const roleBindingsRoutes = (deps: RoleBindingsRoutesDeps): FastifyPluginA
           summary: 'List role bindings at a tenant, optionally filtered by principal',
           querystring: ListQuery,
           response: {
-            200: Envelope(z.array(RoleBindingDto)),
+            200: Page(RoleBindingDto),
             400: ErrorResponse,
             401: ErrorResponse,
             403: ErrorResponse,
@@ -117,13 +119,16 @@ export const roleBindingsRoutes = (deps: RoleBindingsRoutesDeps): FastifyPluginA
         ],
       },
       async (req) => {
-        const { tenantId, principalId, includeRevoked } = req.query;
-        const list = await deps.bindings.list({
-          tenantId,
-          ...(principalId !== undefined ? { principalId } : {}),
-          ...(includeRevoked !== undefined ? { includeRevoked } : {}),
-        });
-        return { data: list };
+        const { tenantId, principalId, includeRevoked, limit, cursor } = req.query;
+        const { items, nextCursor } = await deps.bindings.page(
+          {
+            tenantId,
+            ...(principalId !== undefined ? { principalId } : {}),
+            ...(includeRevoked !== undefined ? { includeRevoked } : {}),
+          },
+          { limit, ...(cursor !== undefined ? { cursor } : {}) },
+        );
+        return { data: items, pageInfo: { nextCursor, hasMore: nextCursor !== null } };
       },
     );
   };

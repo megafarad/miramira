@@ -6,12 +6,13 @@ import {
 } from '../repositories/role-bindings.js';
 import { OutboxRepository } from '../repositories/outbox.js';
 import { AuditLogRepository } from '../repositories/audit-log.js';
-import { NotFoundError, ValidationError } from './errors.js';
+import { NotFoundError } from './errors.js';
 import { AUDIT_ACTIONS, AUDIT_TARGETS } from './audit-actions.js';
 import type { AuditRequestContext } from '../plugins/audit.js';
+import type { PaginationOpts, PageResult } from '../schemas/envelopes.js';
 
-export interface ListBindingsInput {
-  tenantId?: string;
+export interface PageBindingsInput {
+  tenantId: string;
   principalId?: string;
   includeRevoked?: boolean;
 }
@@ -20,7 +21,7 @@ export interface RoleBindingsService {
   create(input: CreateBindingInput, audit?: AuditRequestContext): Promise<RoleBinding>;
   revoke(id: string, audit?: AuditRequestContext): Promise<RoleBinding>;
   get(id: string): Promise<RoleBinding>;
-  list(input: ListBindingsInput): Promise<RoleBinding[]>;
+  page(input: PageBindingsInput, opts: PaginationOpts): Promise<PageResult<RoleBinding>>;
 }
 
 export interface RoleBindingsServiceDeps {
@@ -100,19 +101,14 @@ export class RoleBindingsServiceImpl implements RoleBindingsService {
     return row;
   }
 
-  async list(input: ListBindingsInput): Promise<RoleBinding[]> {
-    if (!input.tenantId && !input.principalId) {
-      throw new ValidationError('list requires tenantId or principalId');
-    }
-    const repo = new RoleBindingsRepository(this.deps.db);
-    const activeOnly = !input.includeRevoked;
-    if (input.tenantId && input.principalId) {
-      const byTenant = await repo.listForTenant(input.tenantId, { activeOnly });
-      return byTenant.filter((b) => b.principalId === input.principalId);
-    }
-    if (input.tenantId) {
-      return repo.listForTenant(input.tenantId, { activeOnly });
-    }
-    return repo.listForPrincipal(input.principalId!, { activeOnly });
+  async page(input: PageBindingsInput, opts: PaginationOpts): Promise<PageResult<RoleBinding>> {
+    return new RoleBindingsRepository(this.deps.db).pageBindings(
+      {
+        tenantId: input.tenantId,
+        ...(input.principalId ? { principalId: input.principalId } : {}),
+        activeOnly: !input.includeRevoked,
+      },
+      opts,
+    );
   }
 }

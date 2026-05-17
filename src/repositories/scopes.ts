@@ -1,7 +1,9 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client.js';
 import { newId } from '../lib/ids.js';
 import { scopes, tenants, type Scope } from '../db/schema.js';
+import type { PaginationOpts, PageResult } from '../schemas/envelopes.js';
+import { paginate } from '../lib/pagination.js';
 
 export interface CreateScopeInput {
   tenantId: string;
@@ -15,6 +17,7 @@ export interface ScopesRepo {
   findByName(tenantId: string, name: string): Promise<Scope | undefined>;
   findByNameInAncestors(tenantId: string, name: string): Promise<Scope | undefined>;
   listForTenant(tenantId: string): Promise<Scope[]>;
+  pageForTenant(tenantId: string, opts: PaginationOpts): Promise<PageResult<Scope>>;
   listByIds(ids: string[]): Promise<Scope[]>;
   update(
     id: string,
@@ -84,6 +87,21 @@ export class ScopesRepository implements ScopesRepo {
 
   async listForTenant(tenantId: string): Promise<Scope[]> {
     return this.db.select().from(scopes).where(eq(scopes.tenantId, tenantId));
+  }
+
+  async pageForTenant(
+    tenantId: string,
+    opts: PaginationOpts,
+  ): Promise<PageResult<Scope>> {
+    const base = eq(scopes.tenantId, tenantId);
+    const where = opts.cursor ? and(base, gt(scopes.id, opts.cursor)) : base;
+    const rows = await this.db
+      .select()
+      .from(scopes)
+      .where(where)
+      .orderBy(scopes.id)
+      .limit(opts.limit + 1);
+    return paginate(rows, opts.limit, (r) => r.id);
   }
 
   async listByIds(ids: string[]): Promise<Scope[]> {

@@ -1,7 +1,9 @@
-import { eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client.js';
 import { newId } from '../lib/ids.js';
 import { tenants, type NewTenant, type Tenant } from '../db/schema.js';
+import type { PaginationOpts, PageResult } from '../schemas/envelopes.js';
+import { paginate } from '../lib/pagination.js';
 
 export interface CreateTenantInput {
   name: string;
@@ -13,6 +15,7 @@ export interface TenantsRepo {
   create(input: CreateTenantInput): Promise<Tenant>;
   get(id: string): Promise<Tenant | undefined>;
   listChildren(parentId: string | null): Promise<Tenant[]>;
+  pageChildren(parentId: string | null, opts: PaginationOpts): Promise<PageResult<Tenant>>;
   update(id: string, patch: Partial<Pick<Tenant, 'name' | 'inherit' | 'parentId'>>): Promise<Tenant | undefined>;
   getAncestors(tenantId: string): Promise<Tenant[]>;
   getEffectiveDescendants(tenantId: string, crossesBoundary: boolean): Promise<Tenant[]>;
@@ -44,6 +47,21 @@ export class TenantsRepository implements TenantsRepo {
       .select()
       .from(tenants)
       .where(parentId === null ? isNull(tenants.parentId) : eq(tenants.parentId, parentId));
+  }
+
+  async pageChildren(
+    parentId: string | null,
+    opts: PaginationOpts,
+  ): Promise<PageResult<Tenant>> {
+    const parentPred = parentId === null ? isNull(tenants.parentId) : eq(tenants.parentId, parentId);
+    const where = opts.cursor ? and(parentPred, gt(tenants.id, opts.cursor)) : parentPred;
+    const rows = await this.db
+      .select()
+      .from(tenants)
+      .where(where)
+      .orderBy(tenants.id)
+      .limit(opts.limit + 1);
+    return paginate(rows, opts.limit, (r) => r.id);
   }
 
   async update(

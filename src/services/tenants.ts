@@ -5,6 +5,7 @@ import { AuditLogRepository } from '../repositories/audit-log.js';
 import { NotFoundError } from './errors.js';
 import { AUDIT_ACTIONS, AUDIT_TARGETS } from './audit-actions.js';
 import type { AuditRequestContext } from '../plugins/audit.js';
+import type { PaginationOpts, PageResult } from '../schemas/envelopes.js';
 
 export interface UpdateTenantInput {
   name?: string;
@@ -13,7 +14,7 @@ export interface UpdateTenantInput {
 export interface TenantsService {
   create(input: CreateTenantInput, audit?: AuditRequestContext): Promise<Tenant>;
   get(id: string): Promise<Tenant>;
-  listChildren(parentId: string): Promise<Tenant[]>;
+  pageChildren(parentId: string, opts: PaginationOpts): Promise<PageResult<Tenant>>;
   update(id: string, patch: UpdateTenantInput, audit?: AuditRequestContext): Promise<Tenant>;
 }
 
@@ -60,11 +61,11 @@ export class TenantsServiceImpl implements TenantsService {
     return row;
   }
 
-  async listChildren(parentId: string): Promise<Tenant[]> {
+  async pageChildren(parentId: string, opts: PaginationOpts): Promise<PageResult<Tenant>> {
     const tenants = new TenantsRepository(this.deps.db);
     const parent = await tenants.get(parentId);
     if (!parent) throw new NotFoundError(`tenant ${parentId} not found`);
-    return tenants.listChildren(parentId);
+    return tenants.pageChildren(parentId, opts);
   }
 
   async update(

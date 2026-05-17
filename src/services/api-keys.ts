@@ -5,6 +5,7 @@ import { AuditLogRepository } from '../repositories/audit-log.js';
 import { NotFoundError } from './errors.js';
 import { AUDIT_ACTIONS, AUDIT_TARGETS } from './audit-actions.js';
 import type { AuditRequestContext } from '../plugins/audit.js';
+import type { PaginationOpts, PageResult } from '../schemas/envelopes.js';
 
 export interface CreateApiKeyInput {
   label: string;
@@ -23,7 +24,7 @@ export interface CreatedApiKey {
 export interface ApiKeysService {
   create(input: CreateApiKeyInput, audit?: AuditRequestContext): Promise<CreatedApiKey>;
   get(id: string): Promise<ApiKey>;
-  listByTenant(tenantId: string): Promise<ApiKey[]>;
+  pageByTenant(tenantId: string, opts: PaginationOpts): Promise<PageResult<ApiKey>>;
   revoke(id: string, audit?: AuditRequestContext): Promise<ApiKey>;
 }
 
@@ -66,8 +67,8 @@ export class ApiKeysServiceImpl implements ApiKeysService {
     return row;
   }
 
-  async listByTenant(tenantId: string): Promise<ApiKey[]> {
-    return new ApiKeysRepository(this.deps.db).listForTenant(tenantId);
+  async pageByTenant(tenantId: string, opts: PaginationOpts): Promise<PageResult<ApiKey>> {
+    return new ApiKeysRepository(this.deps.db).pageForTenant(tenantId, opts);
   }
 
   async revoke(id: string, audit?: AuditRequestContext): Promise<ApiKey> {

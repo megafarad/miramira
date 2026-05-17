@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import type { ScopesService } from '../services/scopes.js';
 import type { PermissionsService } from '../services/permissions.js';
-import { Envelope, ErrorResponse } from '../schemas/envelopes.js';
+import { Envelope, ErrorResponse, Page, PaginationQuery } from '../schemas/envelopes.js';
 import { ScopeDto } from '../schemas/dtos.js';
 
 const TenantIdParams = z.object({ tenantId: z.string().uuid() });
@@ -79,8 +79,10 @@ export const scopesRoutes = (deps: ScopesRoutesDeps): FastifyPluginAsync => {
           tags: [TAG],
           summary: 'List scopes defined at a tenant',
           params: TenantIdParams,
+          querystring: PaginationQuery,
           response: {
-            200: Envelope(z.array(ScopeDto)),
+            200: Page(ScopeDto),
+            400: ErrorResponse,
             401: ErrorResponse,
             403: ErrorResponse,
           },
@@ -94,8 +96,11 @@ export const scopesRoutes = (deps: ScopesRoutesDeps): FastifyPluginAsync => {
         ],
       },
       async (req) => {
-        const scopes = await deps.scopes.listByTenant(req.params.tenantId);
-        return { data: scopes };
+        const { items, nextCursor } = await deps.scopes.pageByTenant(
+          req.params.tenantId,
+          req.query,
+        );
+        return { data: items, pageInfo: { nextCursor, hasMore: nextCursor !== null } };
       },
     );
 

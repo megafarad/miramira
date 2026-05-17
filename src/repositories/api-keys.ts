@@ -1,8 +1,10 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client.js';
 import { newId } from '../lib/ids.js';
 import { hashApiKey, mintApiKey, type MintedApiKey } from '../lib/api-key.js';
 import { apiKeys, type ApiKey } from '../db/schema.js';
+import type { PaginationOpts, PageResult } from '../schemas/envelopes.js';
+import { paginate } from '../lib/pagination.js';
 
 export interface CreateApiKeyInput {
   label: string;
@@ -22,6 +24,7 @@ export interface ApiKeysRepo {
   findById(id: string): Promise<ApiKey | undefined>;
   findActiveBySecret(secret: string): Promise<ApiKey | undefined>;
   listForTenant(tenantId: string): Promise<ApiKey[]>;
+  pageForTenant(tenantId: string, opts: PaginationOpts): Promise<PageResult<ApiKey>>;
   revoke(id: string): Promise<ApiKey | undefined>;
   touchLastUsed(id: string, when?: Date): Promise<void>;
 }
@@ -70,6 +73,21 @@ export class ApiKeysRepository implements ApiKeysRepo {
 
   async listForTenant(tenantId: string): Promise<ApiKey[]> {
     return this.db.select().from(apiKeys).where(eq(apiKeys.tenantId, tenantId));
+  }
+
+  async pageForTenant(
+    tenantId: string,
+    opts: PaginationOpts,
+  ): Promise<PageResult<ApiKey>> {
+    const base = eq(apiKeys.tenantId, tenantId);
+    const where = opts.cursor ? and(base, gt(apiKeys.id, opts.cursor)) : base;
+    const rows = await this.db
+      .select()
+      .from(apiKeys)
+      .where(where)
+      .orderBy(apiKeys.id)
+      .limit(opts.limit + 1);
+    return paginate(rows, opts.limit, (r) => r.id);
   }
 
   async revoke(id: string): Promise<ApiKey | undefined> {

@@ -1,7 +1,9 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client.js';
 import { newId } from '../lib/ids.js';
 import { roleScopes, roles, scopes, type Role, type Scope } from '../db/schema.js';
+import type { PaginationOpts, PageResult } from '../schemas/envelopes.js';
+import { paginate } from '../lib/pagination.js';
 
 export interface CreateRoleInput {
   tenantId: string;
@@ -20,6 +22,7 @@ export interface RolesRepo {
   findById(id: string): Promise<Role | undefined>;
   findByName(tenantId: string, name: string): Promise<Role | undefined>;
   listForTenant(tenantId: string): Promise<Role[]>;
+  pageForTenant(tenantId: string, opts: PaginationOpts): Promise<PageResult<Role>>;
   getWithScopes(roleId: string): Promise<RoleWithScopes | undefined>;
   addScopes(roleId: string, scopeIds: string[]): Promise<void>;
   removeScopes(roleId: string, scopeIds: string[]): Promise<void>;
@@ -64,6 +67,21 @@ export class RolesRepository implements RolesRepo {
 
   async listForTenant(tenantId: string): Promise<Role[]> {
     return this.db.select().from(roles).where(eq(roles.tenantId, tenantId));
+  }
+
+  async pageForTenant(
+    tenantId: string,
+    opts: PaginationOpts,
+  ): Promise<PageResult<Role>> {
+    const base = eq(roles.tenantId, tenantId);
+    const where = opts.cursor ? and(base, gt(roles.id, opts.cursor)) : base;
+    const rows = await this.db
+      .select()
+      .from(roles)
+      .where(where)
+      .orderBy(roles.id)
+      .limit(opts.limit + 1);
+    return paginate(rows, opts.limit, (r) => r.id);
   }
 
   async getWithScopes(roleId: string): Promise<RoleWithScopes | undefined> {

@@ -101,4 +101,40 @@ describe.skipIf(!reachable)('OpenAPI spec', () => {
     expect(op).toBeDefined();
     expect(op?.requestBody).toBeDefined();
   });
+
+  it('list endpoints document a pageInfo response shape', () => {
+    // Smoke-test pagination surface on one representative list endpoint.
+    // If this regresses, every paginated endpoint is suspect.
+    const op = spec.paths['/role-bindings']?.get as
+      | {
+          parameters?: { name: string; in: string }[];
+          responses?: {
+            '200'?: {
+              content?: {
+                'application/json'?: {
+                  schema?: {
+                    properties?: {
+                      data?: unknown;
+                      pageInfo?: {
+                        properties?: { nextCursor?: unknown; hasMore?: unknown };
+                      };
+                    };
+                  };
+                };
+              };
+            };
+          };
+        }
+      | undefined;
+    expect(op).toBeDefined();
+    const params = op?.parameters ?? [];
+    const paramNames = new Set(params.filter((p) => p.in === 'query').map((p) => p.name));
+    expect(paramNames.has('limit')).toBe(true);
+    expect(paramNames.has('cursor')).toBe(true);
+
+    const props = op?.responses?.['200']?.content?.['application/json']?.schema?.properties;
+    expect(props?.data).toBeDefined();
+    expect(props?.pageInfo?.properties?.nextCursor).toBeDefined();
+    expect(props?.pageInfo?.properties?.hasMore).toBeDefined();
+  });
 });
