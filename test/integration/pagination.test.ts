@@ -201,8 +201,8 @@ describe.skipIf(!reachable)('pagination contract', () => {
         const u = await t.ensureUser();
         await t.services.bindings.create({
           principalId: u.principalId,
-          roleId: (await t.services.roles.pageByTenant(MASTER_TENANT_ID, { limit: 1 }))
-            .items[0]!.id,
+          roleId: (await t.services.roles.pageByTenant(MASTER_TENANT_ID, { limit: 1 })).items[0]!
+            .id,
           tenantId: MASTER_TENANT_ID,
         });
       }

@@ -52,10 +52,7 @@ export interface RoleBindingsRepo {
    * the join here naturally excludes bindings of the modified role, so a
    * non-empty result means OTHER roles still grant the (principal, scope).
    */
-  findActiveBindingsForPrincipalScope(
-    principalId: string,
-    scopeId: string,
-  ): Promise<RoleBinding[]>;
+  findActiveBindingsForPrincipalScope(principalId: string, scopeId: string): Promise<RoleBinding[]>;
 }
 
 export class RoleBindingsRepository implements RoleBindingsRepo {
@@ -78,11 +75,7 @@ export class RoleBindingsRepository implements RoleBindingsRepo {
   }
 
   async findById(id: string): Promise<RoleBinding | undefined> {
-    const [row] = await this.db
-      .select()
-      .from(roleBindings)
-      .where(eq(roleBindings.id, id))
-      .limit(1);
+    const [row] = await this.db.select().from(roleBindings).where(eq(roleBindings.id, id)).limit(1);
     return row;
   }
 
@@ -101,10 +94,7 @@ export class RoleBindingsRepository implements RoleBindingsRepo {
       );
   }
 
-  async listForTenant(
-    tenantId: string,
-    opts: ListBindingsOptions = {},
-  ): Promise<RoleBinding[]> {
+  async listForTenant(tenantId: string, opts: ListBindingsOptions = {}): Promise<RoleBinding[]> {
     const activeOnly = opts.activeOnly ?? true;
     return this.db
       .select()

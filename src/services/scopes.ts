@@ -62,11 +62,7 @@ export class ScopesServiceImpl implements ScopesService {
   // Rename + description edit. No outbox event — FGA tuples are keyed by
   // scope ID, not name. After rename, /check with the new name resolves; with
   // the old name returns false (consistent with "unknown scope").
-  async update(
-    id: string,
-    patch: UpdateScopeInput,
-    audit?: AuditRequestContext,
-  ): Promise<Scope> {
+  async update(id: string, patch: UpdateScopeInput, audit?: AuditRequestContext): Promise<Scope> {
     return wrapConflict(
       () =>
         this.deps.db.transaction(async (tx) => {

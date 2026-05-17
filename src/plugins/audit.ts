@@ -33,22 +33,23 @@ function pickHeader(h: string | string[] | undefined): string | null {
 }
 
 const auditPluginInner: FastifyPluginAsync = async (app) => {
-  app.decorateRequest('auditContext', function buildAuditContext(
-    this: FastifyRequest,
-  ): AuditRequestContext {
-    return {
-      actorPrincipalId: this.principal?.id ?? null,
-      actorKind: this.principal?.kind ?? null,
-      requestId: this.id,
-      method: this.method,
-      // routeOptions.url is the Fastify route template ('/tenants/:id');
-      // falls back to the literal URL if the request didn't match a route
-      // (shouldn't happen for handler-invoked code, but defensive).
-      route: this.routeOptions?.url ?? this.url,
-      ip: this.ip ?? null,
-      userAgent: pickHeader(this.headers['user-agent']),
-    };
-  });
+  app.decorateRequest(
+    'auditContext',
+    function buildAuditContext(this: FastifyRequest): AuditRequestContext {
+      return {
+        actorPrincipalId: this.principal?.id ?? null,
+        actorKind: this.principal?.kind ?? null,
+        requestId: this.id,
+        method: this.method,
+        // routeOptions.url is the Fastify route template ('/tenants/:id');
+        // falls back to the literal URL if the request didn't match a route
+        // (shouldn't happen for handler-invoked code, but defensive).
+        route: this.routeOptions?.url ?? this.url,
+        ip: this.ip ?? null,
+        userAgent: pickHeader(this.headers['user-agent']),
+      };
+    },
+  );
 };
 
 export const auditPlugin = fp(auditPluginInner, { name: 'audit' });

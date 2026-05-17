@@ -22,9 +22,9 @@ describe.skipIf(!reachable)('audit log', () => {
     await closeTestDb();
   });
 
-  async function lastEntry(filter: Partial<Pick<AuditLogEntry, 'action' | 'targetId'>>): Promise<
-    AuditLogEntry | undefined
-  > {
+  async function lastEntry(
+    filter: Partial<Pick<AuditLogEntry, 'action' | 'targetId'>>,
+  ): Promise<AuditLogEntry | undefined> {
     const rows = await t.db.select().from(auditLog).orderBy(desc(auditLog.createdAt));
     return rows.find(
       (r) =>

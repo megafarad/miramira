@@ -39,7 +39,12 @@ describe('nextDelayMs', () => {
 describe('nextRetryAt', () => {
   it('returns a Date in the future', () => {
     const now = new Date('2026-05-15T12:00:00Z');
-    const result = nextRetryAt(1, DEFAULT_BACKOFF, () => now, () => 0.5);
+    const result = nextRetryAt(
+      1,
+      DEFAULT_BACKOFF,
+      () => now,
+      () => 0.5,
+    );
     expect(result.getTime()).toBe(now.getTime() + DEFAULT_BACKOFF.baseMs);
   });
 });

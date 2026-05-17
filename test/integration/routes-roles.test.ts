@@ -85,8 +85,7 @@ describe.skipIf(!reachable)('routes: /roles', () => {
     const pending = await outbox.listPending();
     const added = pending.find(
       (e) =>
-        e.eventType === 'role.scope_added' &&
-        (e.payload as { roleId: string }).roleId === role.id,
+        e.eventType === 'role.scope_added' && (e.payload as { roleId: string }).roleId === role.id,
     );
     expect(added).toBeDefined();
   });

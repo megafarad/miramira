@@ -68,11 +68,7 @@ export class TenantsServiceImpl implements TenantsService {
     return tenants.pageChildren(parentId, opts);
   }
 
-  async update(
-    id: string,
-    patch: UpdateTenantInput,
-    audit?: AuditRequestContext,
-  ): Promise<Tenant> {
+  async update(id: string, patch: UpdateTenantInput, audit?: AuditRequestContext): Promise<Tenant> {
     return this.deps.db.transaction(async (tx) => {
       const repo = new TenantsRepository(tx);
       const before = audit ? await repo.get(id) : undefined;

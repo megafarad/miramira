@@ -57,10 +57,7 @@ export const rolesRoutes = (deps: RolesRoutesDeps): FastifyPluginAsync => {
         },
         preHandler: [
           app.requireAuth,
-          app.requireScope(
-            'roles:write',
-            (req) => (req.params as { tenantId: string }).tenantId,
-          ),
+          app.requireScope('roles:write', (req) => (req.params as { tenantId: string }).tenantId),
         ],
       },
       async (req) => {
@@ -96,17 +93,11 @@ export const rolesRoutes = (deps: RolesRoutesDeps): FastifyPluginAsync => {
         },
         preHandler: [
           app.requireAuth,
-          app.requireScope(
-            'roles:read',
-            (req) => (req.params as { tenantId: string }).tenantId,
-          ),
+          app.requireScope('roles:read', (req) => (req.params as { tenantId: string }).tenantId),
         ],
       },
       async (req) => {
-        const { items, nextCursor } = await deps.roles.pageByTenant(
-          req.params.tenantId,
-          req.query,
-        );
+        const { items, nextCursor } = await deps.roles.pageByTenant(req.params.tenantId, req.query);
         return { data: items, pageInfo: { nextCursor, hasMore: nextCursor !== null } };
       },
     );

@@ -16,7 +16,10 @@ export interface TenantsRepo {
   get(id: string): Promise<Tenant | undefined>;
   listChildren(parentId: string | null): Promise<Tenant[]>;
   pageChildren(parentId: string | null, opts: PaginationOpts): Promise<PageResult<Tenant>>;
-  update(id: string, patch: Partial<Pick<Tenant, 'name' | 'inherit' | 'parentId'>>): Promise<Tenant | undefined>;
+  update(
+    id: string,
+    patch: Partial<Pick<Tenant, 'name' | 'inherit' | 'parentId'>>,
+  ): Promise<Tenant | undefined>;
   getAncestors(tenantId: string): Promise<Tenant[]>;
   getEffectiveDescendants(tenantId: string, crossesBoundary: boolean): Promise<Tenant[]>;
   delete(id: string): Promise<boolean>;
@@ -49,11 +52,9 @@ export class TenantsRepository implements TenantsRepo {
       .where(parentId === null ? isNull(tenants.parentId) : eq(tenants.parentId, parentId));
   }
 
-  async pageChildren(
-    parentId: string | null,
-    opts: PaginationOpts,
-  ): Promise<PageResult<Tenant>> {
-    const parentPred = parentId === null ? isNull(tenants.parentId) : eq(tenants.parentId, parentId);
+  async pageChildren(parentId: string | null, opts: PaginationOpts): Promise<PageResult<Tenant>> {
+    const parentPred =
+      parentId === null ? isNull(tenants.parentId) : eq(tenants.parentId, parentId);
     const where = opts.cursor ? and(parentPred, gt(tenants.id, opts.cursor)) : parentPred;
     const rows = await this.db
       .select()
@@ -83,10 +84,7 @@ export class TenantsRepository implements TenantsRepo {
    * `crossesBoundary = true`, ALL descendants are returned regardless of
    * inherit flags.
    */
-  async getEffectiveDescendants(
-    tenantId: string,
-    crossesBoundary: boolean,
-  ): Promise<Tenant[]> {
+  async getEffectiveDescendants(tenantId: string, crossesBoundary: boolean): Promise<Tenant[]> {
     const rows = await this.db.execute<Tenant>(sql`
       WITH RECURSIVE descs AS (
         SELECT id, parent_id, name, inherit, created_at, updated_at, 0 AS depth
@@ -130,7 +128,10 @@ export class TenantsRepository implements TenantsRepo {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db.delete(tenants).where(eq(tenants.id, id)).returning({ id: tenants.id });
+    const result = await this.db
+      .delete(tenants)
+      .where(eq(tenants.id, id))
+      .returning({ id: tenants.id });
     return result.length > 0;
   }
 }

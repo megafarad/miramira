@@ -8,7 +8,13 @@ import { outboxEvents, type OutboxEvent } from '../db/schema.js';
 export type OutboxPayload =
   | { kind: 'tenant.created'; tenantId: string; parentId: string | null }
   | { kind: 'tenant.parent_changed'; tenantId: string; parentId: string | null }
-  | { kind: 'role_binding.created'; bindingId: string; principalId: string; roleId: string; tenantId: string }
+  | {
+      kind: 'role_binding.created';
+      bindingId: string;
+      principalId: string;
+      roleId: string;
+      tenantId: string;
+    }
   | { kind: 'role_binding.revoked'; bindingId: string }
   | { kind: 'role.scope_added'; roleId: string; scopeId: string }
   | { kind: 'role.scope_removed'; roleId: string; scopeId: string };

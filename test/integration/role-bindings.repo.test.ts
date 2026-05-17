@@ -5,10 +5,7 @@ import { UsersRepository } from '../../src/repositories/users.js';
 import { PrincipalsRepository } from '../../src/repositories/principals.js';
 import { RolesRepository } from '../../src/repositories/roles.js';
 import { RoleBindingsRepository } from '../../src/repositories/role-bindings.js';
-import {
-  MASTER_TENANT_ID,
-  SYSTEM_ROLE_ADMIN_ID,
-} from '../../src/db/seeds/system-ids.js';
+import { MASTER_TENANT_ID, SYSTEM_ROLE_ADMIN_ID } from '../../src/db/seeds/system-ids.js';
 
 describe.skipIf(!(await isDbReachable()))('RoleBindingsRepository', () => {
   let tenants: TenantsRepository;

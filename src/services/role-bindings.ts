@@ -31,10 +31,7 @@ export interface RoleBindingsServiceDeps {
 export class RoleBindingsServiceImpl implements RoleBindingsService {
   constructor(private readonly deps: RoleBindingsServiceDeps) {}
 
-  async create(
-    input: CreateBindingInput,
-    audit?: AuditRequestContext,
-  ): Promise<RoleBinding> {
+  async create(input: CreateBindingInput, audit?: AuditRequestContext): Promise<RoleBinding> {
     return this.deps.db.transaction(async (tx) => {
       const bindings = new RoleBindingsRepository(tx);
       const outbox = new OutboxRepository(tx);

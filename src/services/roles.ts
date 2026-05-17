@@ -83,11 +83,7 @@ export class RolesServiceImpl implements RolesService {
     return new RolesRepository(this.deps.db).pageForTenant(tenantId, opts);
   }
 
-  async addScopes(
-    roleId: string,
-    scopeIds: string[],
-    audit?: AuditRequestContext,
-  ): Promise<void> {
+  async addScopes(roleId: string, scopeIds: string[], audit?: AuditRequestContext): Promise<void> {
     if (scopeIds.length === 0) return;
     await this.deps.db.transaction(async (tx) => {
       const roles = new RolesRepository(tx);
@@ -122,11 +118,7 @@ export class RolesServiceImpl implements RolesService {
     });
   }
 
-  async removeScope(
-    roleId: string,
-    scopeId: string,
-    audit?: AuditRequestContext,
-  ): Promise<void> {
+  async removeScope(roleId: string, scopeId: string, audit?: AuditRequestContext): Promise<void> {
     await this.deps.db.transaction(async (tx) => {
       const roles = new RolesRepository(tx);
       const outbox = new OutboxRepository(tx);
@@ -158,11 +150,7 @@ export class RolesServiceImpl implements RolesService {
     });
   }
 
-  async update(
-    id: string,
-    patch: UpdateRoleInput,
-    audit?: AuditRequestContext,
-  ): Promise<Role> {
+  async update(id: string, patch: UpdateRoleInput, audit?: AuditRequestContext): Promise<Role> {
     return wrapConflict(
       () =>
         this.deps.db.transaction(async (tx) => {

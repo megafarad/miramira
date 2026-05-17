@@ -75,10 +75,7 @@ export class ApiKeysRepository implements ApiKeysRepo {
     return this.db.select().from(apiKeys).where(eq(apiKeys.tenantId, tenantId));
   }
 
-  async pageForTenant(
-    tenantId: string,
-    opts: PaginationOpts,
-  ): Promise<PageResult<ApiKey>> {
+  async pageForTenant(tenantId: string, opts: PaginationOpts): Promise<PageResult<ApiKey>> {
     const base = eq(apiKeys.tenantId, tenantId);
     const where = opts.cursor ? and(base, gt(apiKeys.id, opts.cursor)) : base;
     const rows = await this.db

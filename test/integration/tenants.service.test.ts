@@ -28,7 +28,11 @@ describe.skipIf(!(await isDbReachable()))('TenantsService.create', () => {
     const matching = pending.filter((e) => e.aggregateId === created.id);
     expect(matching).toHaveLength(1);
     expect(matching[0]?.eventType).toBe('tenant.created');
-    const payload = matching[0]?.payload as { kind: string; tenantId: string; parentId: string | null };
+    const payload = matching[0]?.payload as {
+      kind: string;
+      tenantId: string;
+      parentId: string | null;
+    };
     expect(payload.tenantId).toBe(created.id);
     expect(payload.parentId).toBe(MASTER_TENANT_ID);
   });

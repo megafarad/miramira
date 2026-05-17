@@ -251,11 +251,7 @@ describe.skipIf(!reachable)('routes: /check', () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json<{ data: { results: { allowed: boolean }[] } }>();
-    expect(body.data.results).toEqual([
-      { allowed: true },
-      { allowed: false },
-      { allowed: true },
-    ]);
+    expect(body.data.results).toEqual([{ allowed: true }, { allowed: false }, { allowed: true }]);
   });
 
   it('batch allows mixed self-check + subject-check when caller has permissions:check', async () => {

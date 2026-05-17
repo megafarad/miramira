@@ -35,8 +35,9 @@ function handle(err: FastifyError | Error, req: FastifyRequest, reply: FastifyRe
   // them into the same {error: string} envelope used elsewhere.
   if (hasZodFastifySchemaValidationErrors(err)) {
     const messages = err.validation
-      .map((e: { instancePath?: string; message?: string }) =>
-        `${e.instancePath && e.instancePath.length > 0 ? e.instancePath : '<root>'}: ${e.message ?? 'invalid'}`,
+      .map(
+        (e: { instancePath?: string; message?: string }) =>
+          `${e.instancePath && e.instancePath.length > 0 ? e.instancePath : '<root>'}: ${e.message ?? 'invalid'}`,
       )
       .join('; ');
     void reply.code(400).send({ error: messages } satisfies ErrorResponse);

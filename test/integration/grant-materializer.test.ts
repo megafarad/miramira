@@ -340,8 +340,16 @@ describe.skipIf(!reachable)('GrantMaterializer (integration)', () => {
     const firstScope = await scopesRepo.create({ tenantId: MASTER_TENANT_ID, name: 'rsa:first' });
     await rolesRepo.addScopes(role.id, [firstScope.id]);
 
-    const bindingA = await bindings.create({ principalId: principalA, roleId: role.id, tenantId: orgA.id });
-    const bindingB = await bindings.create({ principalId: principalB, roleId: role.id, tenantId: orgB.id });
+    const bindingA = await bindings.create({
+      principalId: principalA,
+      roleId: role.id,
+      tenantId: orgA.id,
+    });
+    const bindingB = await bindings.create({
+      principalId: principalB,
+      roleId: role.id,
+      tenantId: orgB.id,
+    });
     await materializer.materializeBindingCreated(bindingA.id);
     await materializer.materializeBindingCreated(bindingB.id);
 

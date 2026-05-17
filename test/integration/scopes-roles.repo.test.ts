@@ -27,9 +27,7 @@ describe.skipIf(!(await isDbReachable()))('ScopesRepository + RolesRepository', 
 
   it('master tenant exposes the six seeded system scopes', async () => {
     const list = await scopesRepo.listForTenant(MASTER_TENANT_ID);
-    expect(list.map((s) => s.name).sort()).toEqual(
-      [...Object.values(SYSTEM_SCOPE_NAMES)].sort(),
-    );
+    expect(list.map((s) => s.name).sort()).toEqual([...Object.values(SYSTEM_SCOPE_NAMES)].sort());
   });
 
   it('unique (tenant_id, name) constraint prevents duplicate scope names per tenant', async () => {

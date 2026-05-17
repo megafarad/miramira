@@ -2,11 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestFga, isFgaReachable } from '../_helpers/fga.js';
 import type { FgaClient } from '../../src/openfga/client.js';
 import { newId } from '../../src/lib/ids.js';
-import {
-  principalObject,
-  scopeGrantObject,
-  scopeGrantTuple,
-} from '../../src/openfga/tuples.js';
+import { principalObject, scopeGrantObject, scopeGrantTuple } from '../../src/openfga/tuples.js';
 
 describe.skipIf(!(await isFgaReachable()))('OpenFgaClient (integration)', () => {
   let fga: FgaClient;
@@ -128,9 +124,7 @@ describe.skipIf(!(await isFgaReachable()))('OpenFgaClient (integration)', () => 
     const tenantId = newId();
     // 30 > the WRITE_BATCH_SIZE of 25 — forces a chunked write.
     const scopeIds = Array.from({ length: 30 }, () => newId());
-    const tuples = scopeIds.map((scopeId) =>
-      scopeGrantTuple({ principalId, scopeId, tenantId }),
-    );
+    const tuples = scopeIds.map((scopeId) => scopeGrantTuple({ principalId, scopeId, tenantId }));
 
     await fga.writeTuples(tuples);
 

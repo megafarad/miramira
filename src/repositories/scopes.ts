@@ -89,10 +89,7 @@ export class ScopesRepository implements ScopesRepo {
     return this.db.select().from(scopes).where(eq(scopes.tenantId, tenantId));
   }
 
-  async pageForTenant(
-    tenantId: string,
-    opts: PaginationOpts,
-  ): Promise<PageResult<Scope>> {
+  async pageForTenant(tenantId: string, opts: PaginationOpts): Promise<PageResult<Scope>> {
     const base = eq(scopes.tenantId, tenantId);
     const where = opts.cursor ? and(base, gt(scopes.id, opts.cursor)) : base;
     const rows = await this.db
@@ -122,7 +119,10 @@ export class ScopesRepository implements ScopesRepo {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db.delete(scopes).where(eq(scopes.id, id)).returning({ id: scopes.id });
+    const result = await this.db
+      .delete(scopes)
+      .where(eq(scopes.id, id))
+      .returning({ id: scopes.id });
     return result.length > 0;
   }
 }

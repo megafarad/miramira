@@ -49,7 +49,7 @@ export const mePermissionsRoutes = (deps: MePermissionsRoutesDeps): FastifyPlugi
       {
         schema: {
           tags: [TAG],
-          summary: "List the scopes the authenticated caller holds at a tenant",
+          summary: 'List the scopes the authenticated caller holds at a tenant',
           querystring: PermissionsQuery,
           response: {
             200: Envelope(MePermissionsDto),

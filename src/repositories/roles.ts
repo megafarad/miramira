@@ -69,10 +69,7 @@ export class RolesRepository implements RolesRepo {
     return this.db.select().from(roles).where(eq(roles.tenantId, tenantId));
   }
 
-  async pageForTenant(
-    tenantId: string,
-    opts: PaginationOpts,
-  ): Promise<PageResult<Role>> {
+  async pageForTenant(tenantId: string, opts: PaginationOpts): Promise<PageResult<Role>> {
     const base = eq(roles.tenantId, tenantId);
     const where = opts.cursor ? and(base, gt(roles.id, opts.cursor)) : base;
     const rows = await this.db

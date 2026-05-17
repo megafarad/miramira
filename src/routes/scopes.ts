@@ -51,10 +51,7 @@ export const scopesRoutes = (deps: ScopesRoutesDeps): FastifyPluginAsync => {
         },
         preHandler: [
           app.requireAuth,
-          app.requireScope(
-            'scopes:write',
-            (req) => (req.params as { tenantId: string }).tenantId,
-          ),
+          app.requireScope('scopes:write', (req) => (req.params as { tenantId: string }).tenantId),
         ],
       },
       async (req) => {
@@ -89,10 +86,7 @@ export const scopesRoutes = (deps: ScopesRoutesDeps): FastifyPluginAsync => {
         },
         preHandler: [
           app.requireAuth,
-          app.requireScope(
-            'scopes:read',
-            (req) => (req.params as { tenantId: string }).tenantId,
-          ),
+          app.requireScope('scopes:read', (req) => (req.params as { tenantId: string }).tenantId),
         ],
       },
       async (req) => {

@@ -4,17 +4,10 @@ import type { ScopesRepo } from '../repositories/scopes.js';
 import type { UsersRepo } from '../repositories/users.js';
 import type { Scope } from '../db/schema.js';
 import { FGA_RELATIONS, FGA_TYPES } from '../openfga/model.js';
-import {
-  parseScopeGrantObjectId,
-  principalObject,
-  scopeGrantObject,
-} from '../openfga/tuples.js';
+import { parseScopeGrantObjectId, principalObject, scopeGrantObject } from '../openfga/tuples.js';
 import { ForbiddenError } from './errors.js';
 
-export type SubjectIdentifier =
-  | { sub: string }
-  | { email: string }
-  | { apiKeyId: string };
+export type SubjectIdentifier = { sub: string } | { email: string } | { apiKeyId: string };
 
 export interface CheckInput {
   /** The authenticated caller's principal ID. Used for self-checks. */

@@ -67,7 +67,9 @@ async function bootstrapAdmin(db: Database, email: string): Promise<void> {
     )
     .limit(1);
   if (existing.length > 0) {
-    console.log(`Bootstrap admin: active binding already exists for ${email} (principal ${principal.id}).`);
+    console.log(
+      `Bootstrap admin: active binding already exists for ${email} (principal ${principal.id}).`,
+    );
     return;
   }
 
