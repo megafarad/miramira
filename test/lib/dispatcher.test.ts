@@ -15,6 +15,7 @@ function event(payload: object): OutboxEvent {
     attempts: 0,
     lastError: null,
     nextRetryAt: new Date(),
+    deadAt: null,
     updatedAt: new Date(),
   };
 }

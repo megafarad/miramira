@@ -16,6 +16,7 @@ const baseEnv: Env = {
   SUPABASE_JWT_ISSUER: 'http://localhost',
   SUPABASE_JWT_AUDIENCE: 'authenticated',
   CORS_ALLOWED_ORIGINS: ['https://app.example.com', 'http://localhost:5173'],
+  SHUTDOWN_TIMEOUT_MS: 30_000,
 };
 
 describe('CORS plugin', () => {

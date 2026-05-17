@@ -1,6 +1,11 @@
 import type { OutboxRepo } from '../repositories/outbox.js';
 import type { OutboxDispatcher } from './dispatcher.js';
-import { DEFAULT_BACKOFF, nextRetryAt, type BackoffConfig } from '../lib/backoff.js';
+import {
+  DEFAULT_BACKOFF,
+  nextRetryAt,
+  shouldMarkDead,
+  type BackoffConfig,
+} from '../lib/backoff.js';
 
 export interface WorkerLogger {
   info(obj: Record<string, unknown>, msg: string): void;
@@ -24,6 +29,10 @@ export interface RunOnceResult {
   claimed: number;
   acked: number;
   failed: number;
+  /** Events that crossed maxAttempts this run and were sent to the DLQ. */
+  dead: number;
+  /** Events that we stopped iterating over mid-batch due to a shutdown signal. */
+  abandoned: number;
 }
 
 export class OutboxWorker {
@@ -42,14 +51,20 @@ export class OutboxWorker {
   /**
    * Claim one batch and dispatch each event. Returns counts so callers
    * (tests, metrics) can observe what happened. Does NOT throw on per-event
-   * failures — those are recorded as outbox retries.
+   * failures — those are recorded as outbox retries or dead-lettered when
+   * they exceed maxAttempts. Honours an optional AbortSignal so a shutdown
+   * signal stops iteration after the in-flight event finishes.
    */
-  async runOnce(): Promise<RunOnceResult> {
+  async runOnce(signal?: AbortSignal): Promise<RunOnceResult> {
     const events = await this.deps.outbox.claimBatch(this.batchSize);
-    if (events.length === 0) return { claimed: 0, acked: 0, failed: 0 };
+    if (events.length === 0) {
+      return { claimed: 0, acked: 0, failed: 0, dead: 0, abandoned: 0 };
+    }
 
     let acked = 0;
     let failed = 0;
+    let dead = 0;
+    let abandoned = 0;
 
     for (const evt of events) {
       try {
@@ -57,19 +72,44 @@ export class OutboxWorker {
         await this.deps.outbox.ackProcessed([evt.id]);
         acked++;
       } catch (err) {
-        failed++;
         const msg = err instanceof Error ? err.message : String(err);
         // attempts was already bumped by claimBatch.
-        const retryAt = nextRetryAt(evt.attempts, this.backoff);
-        await this.deps.outbox.recordFailure(evt.id, msg, retryAt);
-        this.logger?.warn(
-          { eventId: evt.id, attempts: evt.attempts, retryAt, err: msg },
-          'event delivery failed; scheduled for retry',
-        );
+        if (shouldMarkDead(evt.attempts, this.backoff)) {
+          await this.deps.outbox.markDead(evt.id, msg);
+          dead++;
+          this.logger?.error(
+            {
+              eventId: evt.id,
+              attempts: evt.attempts,
+              eventType: evt.eventType,
+              aggregateType: evt.aggregateType,
+              aggregateId: evt.aggregateId,
+              payload: evt.payload,
+              err: msg,
+            },
+            'event delivery permanently failed; moved to dead-letter',
+          );
+        } else {
+          failed++;
+          const retryAt = nextRetryAt(evt.attempts, this.backoff);
+          await this.deps.outbox.recordFailure(evt.id, msg, retryAt);
+          this.logger?.warn(
+            { eventId: evt.id, attempts: evt.attempts, retryAt, err: msg },
+            'event delivery failed; scheduled for retry',
+          );
+        }
+      }
+      // Shutdown requested mid-batch: finish the in-flight event but don't
+      // pick up the next one. Remaining claimed events keep their bumped
+      // attempts count and become eligible on next runOnce after their
+      // next_retry_at (which is unchanged from before claim).
+      if (signal?.aborted) {
+        abandoned = events.length - (acked + failed + dead);
+        break;
       }
     }
 
-    return { claimed: events.length, acked, failed };
+    return { claimed: events.length, acked, failed, dead, abandoned };
   }
 
   /**
@@ -80,7 +120,7 @@ export class OutboxWorker {
   async run(signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
       try {
-        const { claimed } = await this.runOnce();
+        const { claimed } = await this.runOnce(signal);
         if (claimed === 0) await waitOrAbort(this.idlePollMs, signal);
       } catch (err) {
         // Failure of the claim/loop itself (e.g. DB connection lost). Pause

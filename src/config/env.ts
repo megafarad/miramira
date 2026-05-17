@@ -47,6 +47,13 @@ const envSchema = z
     // idempotently binds the admin role at the master tenant. Without it, every
     // API endpoint 403s because nobody holds any scopes.
     BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
+
+    // Hard ceiling on graceful shutdown. After SIGTERM we drain in-flight
+    // HTTP requests and the worker's current batch — but if anything hangs
+    // (e.g. an OpenFGA call that never returns) we force-exit non-zero rather
+    // than sit until the orchestrator SIGKILLs us. k8s' default
+    // terminationGracePeriodSeconds is 30; this matches.
+    SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.CORS_ALLOWED_ORIGINS.length === 0) {

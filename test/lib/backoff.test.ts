@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_BACKOFF, nextDelayMs, nextRetryAt } from '../../src/lib/backoff.js';
+import {
+  DEFAULT_BACKOFF,
+  nextDelayMs,
+  nextRetryAt,
+  shouldMarkDead,
+} from '../../src/lib/backoff.js';
 
 describe('nextDelayMs', () => {
   it('returns ~base on first failure', () => {
@@ -24,15 +29,33 @@ describe('nextDelayMs', () => {
 
   it('applies jitter within the configured band', () => {
     // random() = 1.0 -> +max offset; random() = 0.0 -> -max offset
-    const cfg = { baseMs: 1_000, factor: 2, maxMs: 60_000, jitterRatio: 0.2 };
+    const cfg = { baseMs: 1_000, factor: 2, maxMs: 60_000, jitterRatio: 0.2, maxAttempts: 10 };
     expect(nextDelayMs(1, cfg, () => 1.0)).toBe(1_200);
     expect(nextDelayMs(1, cfg, () => 0.0)).toBe(800);
   });
 
   it('never returns negative', () => {
     // If jitter band somehow exceeds the value (shouldn't with ratio<1), still floor at 0
-    const cfg = { baseMs: 1, factor: 2, maxMs: 60_000, jitterRatio: 2.0 };
+    const cfg = { baseMs: 1, factor: 2, maxMs: 60_000, jitterRatio: 2.0, maxAttempts: 10 };
     expect(nextDelayMs(1, cfg, () => 0.0)).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('shouldMarkDead', () => {
+  it('returns false below the threshold', () => {
+    expect(shouldMarkDead(1)).toBe(false);
+    expect(shouldMarkDead(DEFAULT_BACKOFF.maxAttempts - 1)).toBe(false);
+  });
+
+  it('returns true at and above the threshold', () => {
+    expect(shouldMarkDead(DEFAULT_BACKOFF.maxAttempts)).toBe(true);
+    expect(shouldMarkDead(DEFAULT_BACKOFF.maxAttempts + 5)).toBe(true);
+  });
+
+  it('honours a custom config', () => {
+    const cfg = { baseMs: 1, factor: 2, maxMs: 10, jitterRatio: 0, maxAttempts: 3 };
+    expect(shouldMarkDead(2, cfg)).toBe(false);
+    expect(shouldMarkDead(3, cfg)).toBe(true);
   });
 });
 

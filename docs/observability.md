@@ -71,14 +71,80 @@ line).
 The outbox worker (`npm run worker`) logs:
 
 - `info { msg: 'worker started' }` at startup
-- `info { msg: 'worker stopped' }` on graceful shutdown
+- `info { msg: 'worker shutdown signal received', signal, timeoutMs }` on
+  SIGINT/SIGTERM
+- `info { msg: 'worker stopped' }` after a clean drain
 - `warn { eventId, attempts, retryAt, err }` when an event delivery fails;
   the event is requeued with exponential backoff
+- `error { eventId, attempts, eventType, aggregateType, aggregateId, payload,
+  err }` when an event has failed `maxAttempts` times and is moved to the
+  dead-letter state. **Wire this to your alerting** — a dead event means
+  authorization state in OpenFGA has diverged from PostgreSQL until an
+  operator intervenes.
 - `error { err }` when the claim loop itself fails (e.g., DB connection lost)
 
 Workers don't write to `audit_log` directly — they materialize FGA tuples,
 which is a delivery concern, not a state change in miramira's domain model.
 The original mutation that enqueued the outbox event was already audited.
+
+## Dead-letter queue
+
+Events that exceed `maxAttempts` failures (default **10**, configurable in
+`src/lib/backoff.ts`) are retired to the dead-letter state via a `dead_at`
+timestamp on the `outbox_events` row. Dead events are excluded from
+`claimBatch` and stop consuming worker cycles.
+
+### Inspecting dead events
+
+```sql
+SELECT id, event_type, aggregate_id, attempts, last_error, created_at, dead_at
+FROM outbox_events
+WHERE dead_at IS NOT NULL
+ORDER BY dead_at DESC;
+```
+
+The full payload is in the `payload` JSONB column.
+
+### Reviving a dead event
+
+After diagnosing and fixing the root cause (an OpenFGA model mismatch, a
+network ACL, a bug in the materializer, etc.), revive the event by clearing
+the dead state and resetting the retry schedule:
+
+```sql
+UPDATE outbox_events
+SET dead_at = NULL,
+    attempts = 0,
+    last_error = NULL,
+    next_retry_at = now()
+WHERE id = '<event-id>';
+```
+
+The worker will pick it up on its next iteration. Verify success by
+checking that the row's `processed_at` is set within ~`idlePollMs`.
+
+### Why no HTTP admin endpoint?
+
+Deferred. The right access controls (new system scope? master-tenant only?
+multi-step confirmation for revive?) deserve a dedicated phase. For now,
+operators have direct DB access and can use the queries above.
+
+## Shutdown behavior
+
+Both the HTTP server (`npm start`) and the outbox worker (`npm run worker`)
+handle SIGINT and SIGTERM gracefully:
+
+- The HTTP server calls `app.close()`, which stops accepting new connections
+  and drains in-flight requests. Then it closes the Postgres pool.
+- The worker aborts the run loop. The current batch finishes the in-flight
+  event but does not pick up the next one in the batch. Claimed-but-not-yet-
+  processed events keep their bumped `attempts` count; they become eligible
+  on the next worker start once `next_retry_at` passes.
+
+Both drains are wrapped in a `SHUTDOWN_TIMEOUT_MS` watchdog (default 30s,
+matching k8s' `terminationGracePeriodSeconds`). If the drain doesn't
+complete in time, the process logs an error and exits non-zero — better
+than hanging until the orchestrator SIGKILLs without a trace.
 
 ## Sensitive fields
 

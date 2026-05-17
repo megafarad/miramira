@@ -3,6 +3,7 @@ import { loadEnv } from './config/env.js';
 import { createDb } from './db/client.js';
 import { createFgaClient } from './openfga/client.js';
 import { createRemoteJwks } from './lib/jwt.js';
+import { withShutdownTimeout } from './lib/shutdown.js';
 import { ApiKeysRepository } from './repositories/api-keys.js';
 import { PrincipalsRepository } from './repositories/principals.js';
 import { ScopesRepository } from './repositories/scopes.js';
@@ -54,11 +55,21 @@ async function main(): Promise<void> {
 
   const app = await buildApp({ env, fga, db, auth, services });
 
+  let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
-    app.log.info({ signal }, 'shutdown signal received');
+    if (shuttingDown) return;
+    shuttingDown = true;
+    app.log.info({ signal, timeoutMs: env.SHUTDOWN_TIMEOUT_MS }, 'shutdown signal received');
     try {
-      await app.close();
-      await sql.end({ timeout: 5 });
+      await withShutdownTimeout(
+        (async () => {
+          await app.close();
+          await sql.end({ timeout: 5 });
+        })(),
+        env.SHUTDOWN_TIMEOUT_MS,
+        app.log,
+        'http server',
+      );
       process.exit(0);
     } catch (err) {
       app.log.error({ err }, 'error during shutdown');

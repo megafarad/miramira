@@ -258,6 +258,10 @@ export const outboxEvents = pgTable(
     attempts: integer('attempts').notNull().default(0),
     lastError: text('last_error'),
     nextRetryAt: timestamp('next_retry_at', { withTimezone: true }).notNull().defaultNow(),
+    // Set when delivery has exceeded maxAttempts. Dead rows are excluded from
+    // claimBatch. Clearing dead_at (and resetting attempts/next_retry_at)
+    // revives the event for redelivery.
+    deadAt: timestamp('dead_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -266,7 +270,10 @@ export const outboxEvents = pgTable(
   (t) => [
     index('outbox_events_pending_idx')
       .on(t.nextRetryAt)
-      .where(sql`${t.processedAt} IS NULL`),
+      .where(sql`${t.processedAt} IS NULL AND ${t.deadAt} IS NULL`),
+    index('outbox_events_dead_idx')
+      .on(t.deadAt)
+      .where(sql`${t.deadAt} IS NOT NULL`),
     index('outbox_events_aggregate_idx').on(t.aggregateType, t.aggregateId),
   ],
 );

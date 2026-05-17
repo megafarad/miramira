@@ -11,6 +11,7 @@ import { OutboxRepository } from '../repositories/outbox.js';
 import { GrantMaterializerImpl } from '../services/grant-materializer.js';
 import { OutboxDispatcherImpl } from './dispatcher.js';
 import { OutboxWorker } from './worker.js';
+import { withShutdownTimeout } from '../lib/shutdown.js';
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -38,16 +39,36 @@ async function main(): Promise<void> {
   const worker = new OutboxWorker({ outbox, dispatcher, logger });
 
   const controller = new AbortController();
+  let shuttingDown = false;
+  // Fires when shutdown is requested so we can wrap the drain in a watchdog.
+  let onShutdown: () => void = () => undefined;
+  const shutdownRequested = new Promise<void>((resolve) => {
+    onShutdown = resolve;
+  });
   const shutdown = (signal: string): void => {
-    logger.info({ signal }, 'worker shutdown signal received');
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info({ signal, timeoutMs: env.SHUTDOWN_TIMEOUT_MS }, 'worker shutdown signal received');
     controller.abort();
+    onShutdown();
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
   logger.info({}, 'worker started');
-  await worker.run(controller.signal);
-  await sql.end({ timeout: 5 });
+  const runPromise = worker.run(controller.signal);
+  await shutdownRequested;
+  // Drain: wait for the current batch (and DB pool) to finish, with a hard
+  // ceiling so a hung dispatcher call doesn't outlive the grace period.
+  await withShutdownTimeout(
+    (async () => {
+      await runPromise;
+      await sql.end({ timeout: 5 });
+    })(),
+    env.SHUTDOWN_TIMEOUT_MS,
+    logger,
+    'outbox worker',
+  );
   logger.info({}, 'worker stopped');
 }
 

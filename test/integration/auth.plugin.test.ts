@@ -29,6 +29,7 @@ describe.skipIf(!(await isDbReachable()))('auth plugin + /me (integration)', () 
     SUPABASE_JWT_ISSUER: 'https://test.local/auth/v1',
     SUPABASE_JWT_AUDIENCE: 'authenticated',
     CORS_ALLOWED_ORIGINS: [],
+    SHUTDOWN_TIMEOUT_MS: 30_000,
   };
 
   beforeAll(async () => {

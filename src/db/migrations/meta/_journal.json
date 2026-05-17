@@ -15,6 +15,13 @@
       "when": 1778943896007,
       "tag": "0001_special_stone_men",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779048665198,
+      "tag": "0002_fantastic_maximus",
+      "breakpoints": true
     }
   ]
 }

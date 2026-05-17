@@ -17,6 +17,7 @@ const testEnv: Env = {
   SUPABASE_JWT_ISSUER: 'http://localhost',
   SUPABASE_JWT_AUDIENCE: 'authenticated',
   CORS_ALLOWED_ORIGINS: [],
+  SHUTDOWN_TIMEOUT_MS: 30_000,
 };
 
 describe('health routes (no downstreams wired)', () => {
