@@ -66,11 +66,13 @@ describe.skipIf(!reachable)('routes: /me', () => {
     const body = res.json<PermissionsResp>();
     expect(body.data.tenantId).toBe(MASTER_TENANT_ID);
     const names = body.data.scopes.map((s) => s.name);
-    // Admin role holds all 9 system scopes.
+    // Admin role holds every system scope (see SYSTEM_SCOPE_NAMES).
     expect(names).toEqual(
       [
         'api_keys:manage',
         'bindings:manage',
+        'outbox:read',
+        'outbox:write',
         'permissions:check',
         'roles:read',
         'roles:write',

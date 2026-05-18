@@ -94,40 +94,58 @@ Events that exceed `maxAttempts` failures (default **10**, configurable in
 timestamp on the `outbox_events` row. Dead events are excluded from
 `claimBatch` and stop consuming worker cycles.
 
-### Inspecting dead events
+### Admin HTTP endpoints
+
+Four endpoints under `/admin/outbox/dead` give operators a programmatic
+surface for the DLQ. All require an authenticated principal holding one of
+the new system scopes (which ship with the built-in `admin` role):
+
+| Method | Path | Scope | Action |
+|---|---|---|---|
+| `GET` | `/admin/outbox/dead` | `outbox:read` | Paginated list, newest first. Supports `?limit=` and `?cursor=`. |
+| `GET` | `/admin/outbox/dead/:id` | `outbox:read` | Fetch a single dead event including its full `payload`. |
+| `POST` | `/admin/outbox/dead/:id/revive` | `outbox:write` | Clear `dead_at`, reset `attempts`/`last_error`, and set `next_retry_at = now()` so the worker picks it up immediately. |
+| `DELETE` | `/admin/outbox/dead/:id` | `outbox:write` | Permanently drop the row. Use when the event is conclusively poison and you accept the divergence between Postgres and OpenFGA. |
+
+Revive and purge each write an `audit_log` entry (`outbox.revive` /
+`outbox.purge`) recording who acted, the request id, and the full event
+row before/after. Outbox events aren't tenant-scoped — the audit row's
+`tenant_id` is the master tenant.
+
+The mutating endpoints both guard on `dead_at IS NOT NULL`, so a mistyped
+id can't accidentally restart a still-retrying event or delete a live one
+— the response is a 404 in either case.
+
+**Deployment note**: existing deployments need `npm run db:seed` after
+deploying this build so the two new scopes (`outbox:read`, `outbox:write`)
+are created and attached to the `admin` role.
+
+### Direct SQL (fallback)
+
+If the API is unavailable, you can still inspect and manipulate the DLQ
+directly:
 
 ```sql
+-- Inspect:
 SELECT id, event_type, aggregate_id, attempts, last_error, created_at, dead_at
 FROM outbox_events
 WHERE dead_at IS NOT NULL
 ORDER BY dead_at DESC;
-```
 
-The full payload is in the `payload` JSONB column.
-
-### Reviving a dead event
-
-After diagnosing and fixing the root cause (an OpenFGA model mismatch, a
-network ACL, a bug in the materializer, etc.), revive the event by clearing
-the dead state and resetting the retry schedule:
-
-```sql
+-- Revive:
 UPDATE outbox_events
 SET dead_at = NULL,
     attempts = 0,
     last_error = NULL,
     next_retry_at = now()
 WHERE id = '<event-id>';
+
+-- Purge:
+DELETE FROM outbox_events WHERE id = '<event-id>' AND dead_at IS NOT NULL;
 ```
 
-The worker will pick it up on its next iteration. Verify success by
-checking that the row's `processed_at` is set within ~`idlePollMs`.
-
-### Why no HTTP admin endpoint?
-
-Deferred. The right access controls (new system scope? master-tenant only?
-multi-step confirmation for revive?) deserve a dedicated phase. For now,
-operators have direct DB access and can use the queries above.
+SQL-driven changes do NOT write an `audit_log` row — prefer the API path
+when an audit trail matters.
 
 ## Shutdown behavior
 

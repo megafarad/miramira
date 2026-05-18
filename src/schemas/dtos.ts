@@ -108,3 +108,21 @@ export const CheckResultDto = z.object({
 export const CheckBatchResultDto = z.object({
   results: z.array(CheckResultDto),
 });
+
+// Outbox event row, as returned by the admin DLQ endpoints. `payload` is
+// unconstrained because the discriminated union in OutboxPayload is wide and
+// not worth re-asserting at the wire boundary.
+export const OutboxEventDto = z.object({
+  id: z.string().uuid(),
+  aggregateType: z.string(),
+  aggregateId: z.string().uuid(),
+  eventType: z.string(),
+  payload: z.unknown(),
+  createdAt: Timestamp,
+  processedAt: Timestamp.nullable(),
+  attempts: z.number().int(),
+  lastError: z.string().nullable(),
+  nextRetryAt: Timestamp,
+  deadAt: Timestamp.nullable(),
+  updatedAt: Timestamp,
+});

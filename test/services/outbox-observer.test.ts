@@ -16,6 +16,10 @@ function stubRepo(snapshot: { pending?: number; dead?: number; oldest?: Date | n
     countPending: async () => snapshot.pending ?? 0,
     countDead: async () => snapshot.dead ?? 0,
     oldestPendingAt: async () => snapshot.oldest ?? null,
+    pageDead: async () => ({ items: [], nextCursor: null }),
+    getDead: async () => null,
+    revive: async () => null,
+    purge: async () => null,
   };
 }
 

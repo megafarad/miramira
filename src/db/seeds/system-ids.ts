@@ -20,6 +20,8 @@ export const SYSTEM_SCOPE_IDS = {
   scopesRead: '019e2e5d-3ef8-75ad-85c6-cb71d3a5f1a8',
   scopesWrite: '019e2e5d-3ef8-75ad-85c6-cd824a987b34',
   permissionsCheck: '019e2e5d-3ef8-75ad-85c6-d09a3e8211c5',
+  outboxRead: '019e2e5d-3ef8-75ad-85c6-d3ab4f5e7128',
+  outboxWrite: '019e2e5d-3ef8-75ad-85c6-d5cd1a82e342',
 } as const;
 
 export const SYSTEM_SCOPE_NAMES = {
@@ -32,4 +34,8 @@ export const SYSTEM_SCOPE_NAMES = {
   scopesRead: 'scopes:read',
   scopesWrite: 'scopes:write',
   permissionsCheck: 'permissions:check',
+  // Admin DLQ surface. Read: inspect dead-letter events. Write: revive (clear
+  // dead_at + reset retry schedule) or permanently delete a dead row.
+  outboxRead: 'outbox:read',
+  outboxWrite: 'outbox:write',
 } as const;

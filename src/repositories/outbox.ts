@@ -1,7 +1,9 @@
-import { and, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client.js';
 import { newId } from '../lib/ids.js';
 import { outboxEvents, type OutboxEvent } from '../db/schema.js';
+import type { PaginationOpts, PageResult } from '../schemas/envelopes.js';
+import { paginate } from '../lib/pagination.js';
 
 // Discriminated union of outbox payloads the OpenFGA worker knows how to
 // translate. Extend as new aggregate types are added.
@@ -48,6 +50,26 @@ export interface OutboxRepo {
    * empty. The metrics layer derives `oldest_pending_age_ms` from this.
    */
   oldestPendingAt(): Promise<Date | null>;
+  /**
+   * Paginated list of dead-letter rows, newest first by `id` (UUIDv7 is
+   * time-ordered). Backed by `outbox_events_dead_idx`.
+   */
+  pageDead(opts: PaginationOpts): Promise<PageResult<OutboxEvent>>;
+  /** Fetch a single dead-letter row, or null if the id isn't found OR isn't dead. */
+  getDead(id: string): Promise<OutboxEvent | null>;
+  /**
+   * Clear `dead_at`, reset `attempts`/`last_error`, and set `next_retry_at = now()`
+   * so the worker picks the event up on its next iteration. Guards on
+   * `dead_at IS NOT NULL` so a mistyped id can't accidentally restart a
+   * still-retrying event. Returns null if no dead row matched.
+   */
+  revive(id: string): Promise<OutboxEvent | null>;
+  /**
+   * Permanently delete a dead-letter row. Same `dead_at IS NOT NULL` guard
+   * as revive. Returns the deleted row so the service can write an audit
+   * snapshot, or null if no dead row matched.
+   */
+  purge(id: string): Promise<OutboxEvent | null>;
 }
 
 export class OutboxRepository implements OutboxRepo {
@@ -174,6 +196,55 @@ export class OutboxRepository implements OutboxRepo {
     const raw = rows[0]?.t ?? null;
     if (raw === null) return null;
     return raw instanceof Date ? raw : new Date(raw);
+  }
+
+  async pageDead(opts: PaginationOpts): Promise<PageResult<OutboxEvent>> {
+    // Newest first. UUIDv7 ids are time-ordered, so DESC on id mirrors DESC
+    // on created_at without needing a composite cursor. lt(id, cursor) walks
+    // backwards through the sorted set.
+    const where = and(
+      isNotNull(outboxEvents.deadAt),
+      opts.cursor ? lt(outboxEvents.id, opts.cursor) : undefined,
+    );
+    const rows = await this.db
+      .select()
+      .from(outboxEvents)
+      .where(where)
+      .orderBy(desc(outboxEvents.id))
+      .limit(opts.limit + 1);
+    return paginate(rows, opts.limit, (r) => r.id);
+  }
+
+  async getDead(id: string): Promise<OutboxEvent | null> {
+    const [row] = await this.db
+      .select()
+      .from(outboxEvents)
+      .where(and(eq(outboxEvents.id, id), isNotNull(outboxEvents.deadAt)))
+      .limit(1);
+    return row ?? null;
+  }
+
+  async revive(id: string): Promise<OutboxEvent | null> {
+    const [row] = await this.db
+      .update(outboxEvents)
+      .set({
+        deadAt: null,
+        attempts: 0,
+        lastError: null,
+        nextRetryAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(and(eq(outboxEvents.id, id), isNotNull(outboxEvents.deadAt)))
+      .returning();
+    return row ?? null;
+  }
+
+  async purge(id: string): Promise<OutboxEvent | null> {
+    const [row] = await this.db
+      .delete(outboxEvents)
+      .where(and(eq(outboxEvents.id, id), isNotNull(outboxEvents.deadAt)))
+      .returning();
+    return row ?? null;
   }
 }
 

@@ -80,6 +80,18 @@ export async function seedSystemData(db: DbOrTx): Promise<void> {
         name: SYSTEM_SCOPE_NAMES.permissionsCheck,
         description: 'Call POST /check on behalf of other principals.',
       },
+      {
+        id: SYSTEM_SCOPE_IDS.outboxRead,
+        tenantId: MASTER_TENANT_ID,
+        name: SYSTEM_SCOPE_NAMES.outboxRead,
+        description: 'List and inspect dead-letter outbox events.',
+      },
+      {
+        id: SYSTEM_SCOPE_IDS.outboxWrite,
+        tenantId: MASTER_TENANT_ID,
+        name: SYSTEM_SCOPE_NAMES.outboxWrite,
+        description: 'Revive or permanently delete dead-letter outbox events.',
+      },
     ])
     .onConflictDoNothing({ target: scopes.id });
 

@@ -15,6 +15,8 @@ export const AUDIT_ACTIONS = {
   apiKeyRevoke: 'api_key.revoke',
   roleBindingCreate: 'role_binding.create',
   roleBindingRevoke: 'role_binding.revoke',
+  outboxRevive: 'outbox.revive',
+  outboxPurge: 'outbox.purge',
 } as const;
 
 // Canonical target types — match audit_log.target_type.
@@ -24,4 +26,5 @@ export const AUDIT_TARGETS = {
   scope: 'scope',
   apiKey: 'api_key',
   roleBinding: 'role_binding',
+  outboxEvent: 'outbox_event',
 } as const;

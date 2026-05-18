@@ -40,6 +40,10 @@ function stubRepo(events: OutboxEvent[]): OutboxRepo {
     countPending: async () => 0,
     countDead: async () => 0,
     oldestPendingAt: async () => null,
+    pageDead: async () => ({ items: [], nextCursor: null }),
+    getDead: async () => null,
+    revive: async () => null,
+    purge: async () => null,
   };
 }
 

@@ -28,6 +28,7 @@ import { ScopesServiceImpl } from '../../src/services/scopes.js';
 import { ApiKeysServiceImpl } from '../../src/services/api-keys.js';
 import { RoleBindingsServiceImpl } from '../../src/services/role-bindings.js';
 import { PermissionsServiceImpl } from '../../src/services/permissions.js';
+import { OutboxAdminServiceImpl } from '../../src/services/outbox-admin.js';
 import { GrantMaterializerImpl } from '../../src/services/grant-materializer.js';
 
 import { OutboxDispatcherImpl } from '../../src/workers/dispatcher.js';
@@ -111,6 +112,7 @@ export async function buildTestApp(): Promise<TestApp> {
       principals,
       users,
     }),
+    outboxAdmin: new OutboxAdminServiceImpl({ db }),
   };
 
   const env: Env = {

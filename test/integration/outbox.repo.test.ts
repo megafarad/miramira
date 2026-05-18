@@ -129,4 +129,108 @@ describe.skipIf(!(await isDbReachable()))('OutboxRepository', () => {
     expect(await outbox.countPending()).toBe(2);
     expect(await outbox.countDead()).toBe(1);
   });
+
+  it('pageDead returns rows newest first and walks via cursor', async () => {
+    const { db } = getTestDb();
+    const deadIds: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const evt = await db.transaction(async (tx) =>
+        outbox.enqueue(tx, {
+          aggregateType: 'tenant',
+          aggregateId: MASTER_TENANT_ID,
+          payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+        }),
+      );
+      await outbox.markDead(evt.id, `boom-${i}`);
+      deadIds.push(evt.id);
+    }
+
+    // Newest first: UUIDv7 means the last-inserted id sorts highest.
+    const first = await outbox.pageDead({ limit: 2 });
+    expect(first.items.map((r) => r.id)).toEqual([deadIds[4], deadIds[3]]);
+    expect(first.nextCursor).toBe(deadIds[3]);
+
+    const second = await outbox.pageDead({ limit: 2, cursor: first.nextCursor! });
+    expect(second.items.map((r) => r.id)).toEqual([deadIds[2], deadIds[1]]);
+    expect(second.nextCursor).toBe(deadIds[1]);
+
+    const third = await outbox.pageDead({ limit: 2, cursor: second.nextCursor! });
+    expect(third.items.map((r) => r.id)).toEqual([deadIds[0]]);
+    expect(third.nextCursor).toBeNull();
+  });
+
+  it('getDead returns the row when dead, null otherwise', async () => {
+    const { db } = getTestDb();
+    const live = await db.transaction(async (tx) =>
+      outbox.enqueue(tx, {
+        aggregateType: 'tenant',
+        aggregateId: MASTER_TENANT_ID,
+        payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+      }),
+    );
+    // Not yet dead — must return null even though the id exists.
+    expect(await outbox.getDead(live.id)).toBeNull();
+    await outbox.markDead(live.id, 'permanent failure');
+    const row = await outbox.getDead(live.id);
+    expect(row?.id).toBe(live.id);
+    expect(row?.deadAt).toBeInstanceOf(Date);
+
+    // Unknown id returns null.
+    expect(await outbox.getDead('00000000-0000-7000-8000-000000000000')).toBeNull();
+  });
+
+  it('revive clears dead_at, resets attempts/error, and makes the event claimable', async () => {
+    const { db } = getTestDb();
+    const evt = await db.transaction(async (tx) =>
+      outbox.enqueue(tx, {
+        aggregateType: 'tenant',
+        aggregateId: MASTER_TENANT_ID,
+        payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+      }),
+    );
+    await outbox.markDead(evt.id, 'gave up');
+
+    const revived = await outbox.revive(evt.id);
+    expect(revived?.deadAt).toBeNull();
+    expect(revived?.attempts).toBe(0);
+    expect(revived?.lastError).toBeNull();
+
+    // claimBatch can now pick it up again.
+    const claimed = await outbox.claimBatch(10);
+    expect(claimed.map((r) => r.id)).toContain(evt.id);
+  });
+
+  it('revive returns null for a non-dead event (no accidental restart)', async () => {
+    const { db } = getTestDb();
+    const evt = await db.transaction(async (tx) =>
+      outbox.enqueue(tx, {
+        aggregateType: 'tenant',
+        aggregateId: MASTER_TENANT_ID,
+        payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+      }),
+    );
+    const out = await outbox.revive(evt.id);
+    expect(out).toBeNull();
+  });
+
+  it('purge deletes a dead row and returns it; refuses non-dead rows', async () => {
+    const { db } = getTestDb();
+    const live = await db.transaction(async (tx) =>
+      outbox.enqueue(tx, {
+        aggregateType: 'tenant',
+        aggregateId: MASTER_TENANT_ID,
+        payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+      }),
+    );
+    // Live event is not deletable via purge.
+    expect(await outbox.purge(live.id)).toBeNull();
+
+    await outbox.markDead(live.id, 'final');
+    const deleted = await outbox.purge(live.id);
+    expect(deleted?.id).toBe(live.id);
+
+    // Subsequent purge call finds nothing.
+    expect(await outbox.purge(live.id)).toBeNull();
+    expect(await outbox.getDead(live.id)).toBeNull();
+  });
 });
