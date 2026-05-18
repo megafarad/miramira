@@ -170,11 +170,77 @@ Controlled by the `LOG_LEVEL` env var (parsed in `src/config/env.ts`):
 - `LOG_LEVEL=debug` enables Drizzle query logging via the underlying
   `postgres` driver if you've enabled it there.
 
+## Prometheus metrics
+
+Both the API server and the worker process expose Prometheus metrics:
+
+- **API server**: `GET /metrics` on the main port (default `4000`).
+- **Worker**: `GET /metrics` on `METRICS_PORT` (default `9090`).
+
+Both endpoints are **unauthenticated** — bind behind a private network or
+add a NetworkPolicy. Returns the standard Prometheus text exposition
+format, not the `{data: T}` envelope used elsewhere in the API.
+
+### Metrics emitted
+
+| Metric | Type | Labels | Source |
+|---|---|---|---|
+| `http_requests_total` | counter | `method`, `route`, `status` | API server |
+| `http_request_duration_ms` | histogram | `method`, `route`, `status` | API server |
+| `outbox_batch_claimed_total` | counter | — | worker |
+| `outbox_events_acked_total` | counter | — | worker |
+| `outbox_events_failed_total` | counter | — | worker |
+| `outbox_events_dead_total` | counter | — | worker |
+| `outbox_batch_duration_ms` | histogram | — | worker |
+| `outbox_pending` | gauge | — | worker (refreshed every 15 s) |
+| `outbox_dead` | gauge | — | worker (refreshed every 15 s) |
+| `outbox_oldest_pending_age_ms` | gauge | — | worker (refreshed every 15 s) |
+| `fga_call_total` | counter | `op`, `outcome` | both (via `MetricsFgaClient`) |
+| `fga_call_duration_ms` | histogram | `op` | both (via `MetricsFgaClient`) |
+| `process_*`, `nodejs_*` | various | — | `prom-client` defaults |
+
+`route` labels use Fastify route templates (e.g. `/tenants/:id`), not raw
+URLs — keeps cardinality bounded. Requests that don't match any route
+(real 404s) get `route="<unknown>"`.
+
+`/healthz`, `/readyz`, and `/metrics` are excluded from request
+instrumentation so the histograms aren't dominated by probe traffic.
+
+### Example scrape config
+
+```yaml
+scrape_configs:
+  - job_name: miramira-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['miramira:4000']
+  - job_name: miramira-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['miramira-worker:9090']
+```
+
+### Useful PromQL
+
+```promql
+# 5xx rate on the API
+sum(rate(http_requests_total{status=~"5.."}[5m])) by (route)
+
+# p95 request latency by route
+histogram_quantile(0.95, sum(rate(http_request_duration_ms_bucket[5m])) by (le, route))
+
+# Dead-letter creation rate — alert if non-zero for >10 min
+rate(outbox_events_dead_total[5m])
+
+# Outbox backlog age — alert if > 60s for >5 min
+outbox_oldest_pending_age_ms > 60000
+
+# FGA error rate by op
+sum(rate(fga_call_total{outcome="failure"}[5m])) by (op)
+```
+
 ## What's NOT instrumented (yet)
 
-- **Prometheus / OpenMetrics endpoint** — no metrics emitter today. A future
-  phase could add `/metrics` with request counters, latency histograms, and
-  worker queue depth gauges.
 - **Distributed tracing** — no OpenTelemetry integration. Request IDs
   provide enough correlation for single-service debugging; tracing matters
   more once miramira is fronted by an API gateway or sits in a service mesh.

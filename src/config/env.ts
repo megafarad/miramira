@@ -54,6 +54,11 @@ const envSchema = z
     // than sit until the orchestrator SIGKILLs us. k8s' default
     // terminationGracePeriodSeconds is 30; this matches.
     SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+
+    // Worker process exposes /metrics on this port. The HTTP server exposes
+    // /metrics on the main PORT — workers need their own listener because they
+    // are a separate process. Unauthenticated; bind behind a private network.
+    METRICS_PORT: z.coerce.number().int().positive().default(9090),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.CORS_ALLOWED_ORIGINS.length === 0) {

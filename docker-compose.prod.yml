@@ -34,7 +34,40 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?set CORS_ALLOWED_ORIGINS}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
+      # API + Prometheus /metrics share the main port.
       - '4000:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      openfga:
+        condition: service_healthy
+
+  worker:
+    # Same image as the API; entrypoint is the outbox processor.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: miramira:local
+    container_name: miramira-worker
+    restart: unless-stopped
+    command: ['node', 'dist/workers/index.js']
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      METRICS_PORT: 9090
+      DATABASE_URL: postgres://miramira:miramira@postgres:5432/miramira
+      OPENFGA_API_URL: http://openfga:8080
+      OPENFGA_STORE_ID: ${OPENFGA_STORE_ID:?run npm run openfga:bootstrap and export OPENFGA_STORE_ID}
+      OPENFGA_AUTHORIZATION_MODEL_ID: ${OPENFGA_AUTHORIZATION_MODEL_ID:?run npm run openfga:bootstrap and export OPENFGA_AUTHORIZATION_MODEL_ID}
+      # Worker doesn't validate JWTs or honor CORS, but env schema requires
+      # these fields. Reuse the API's values to keep the env profile uniform.
+      SUPABASE_JWKS_URL: ${SUPABASE_JWKS_URL:?set SUPABASE_JWKS_URL}
+      SUPABASE_JWT_ISSUER: ${SUPABASE_JWT_ISSUER:?set SUPABASE_JWT_ISSUER}
+      SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE:-authenticated}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?set CORS_ALLOWED_ORIGINS}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - '9090:9090'
     depends_on:
       postgres:
         condition: service_healthy

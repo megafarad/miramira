@@ -120,7 +120,7 @@ Deeper docs:
 - [`docs/openapi.md`](docs/openapi.md) — generated spec, pagination, SDK
   generation recipes
 - [`docs/audit-log.md`](docs/audit-log.md) — audit table shape, retention
-- [`docs/observability.md`](docs/observability.md) — structured logging
+- [`docs/observability.md`](docs/observability.md) — structured logs + Prometheus `/metrics`
 - [`CLAUDE.md`](CLAUDE.md) — high-level domain model and folder layout
 
 ## Development

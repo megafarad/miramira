@@ -25,8 +25,11 @@ import { authorizePlugin } from './plugins/authorize.js';
 import { corsPlugin } from './plugins/cors.js';
 import { errorHandlerPlugin } from './plugins/errorHandler.js';
 import { loggingPlugin } from './plugins/logging.js';
+import { metricsPlugin } from './plugins/metrics.js';
 import { openapiPlugin } from './plugins/openapi.js';
 import { rateLimitPlugin } from './plugins/rateLimit.js';
+import type { Metrics } from './lib/metrics.js';
+import type { HealthCheckResult } from './routes/health.js';
 
 export interface AppServices {
   tenants: TenantsService;
@@ -49,6 +52,12 @@ export interface BuildAppOptions {
   // authorize plugin + 6 resource route modules. When omitted, only /me
   // is registered behind requireAuth.
   services?: AppServices;
+  // When provided, registers the metrics plugin (instruments requests +
+  // exposes GET /metrics) and decorates `fga` so OpenFGA calls are timed.
+  metrics?: Metrics;
+  // Optional /readyz check that the build's migrations are applied. Server
+  // wires this from db/migration-status.ts; tests typically omit it.
+  migrationsCheck?: () => Promise<HealthCheckResult>;
 }
 
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
@@ -76,6 +85,9 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(rateLimitPlugin);
   await app.register(sensible);
   await app.register(loggingPlugin);
+  if (opts.metrics) {
+    await app.register(metricsPlugin, { metrics: opts.metrics });
+  }
   await app.register(auditPlugin);
   await app.register(openapiPlugin);
 
@@ -109,7 +121,9 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     }
   }
 
-  await app.register(healthRoutes({ fga: opts.fga, db: opts.db }));
+  await app.register(
+    healthRoutes({ fga: opts.fga, db: opts.db, migrationsCheck: opts.migrationsCheck }),
+  );
 
   return app;
 }

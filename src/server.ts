@@ -1,7 +1,10 @@
 import { buildApp, type AppServices } from './app.js';
 import { loadEnv } from './config/env.js';
 import { createDb } from './db/client.js';
+import { buildMigrationsCheck } from './db/migration-status.js';
 import { createFgaClient } from './openfga/client.js';
+import { MetricsFgaClient } from './openfga/metrics-client.js';
+import { createMetricsRegistry } from './lib/metrics.js';
 import { createRemoteJwks } from './lib/jwt.js';
 import { withShutdownTimeout } from './lib/shutdown.js';
 import { ApiKeysRepository } from './repositories/api-keys.js';
@@ -19,11 +22,17 @@ import { PermissionsServiceImpl } from './services/permissions.js';
 async function main(): Promise<void> {
   const env = loadEnv();
   const { db, sql } = createDb(env);
-  const fga = createFgaClient({
-    apiUrl: env.OPENFGA_API_URL,
-    storeId: env.OPENFGA_STORE_ID,
-    authorizationModelId: env.OPENFGA_AUTHORIZATION_MODEL_ID,
-  });
+  const metrics = createMetricsRegistry();
+  // Decorate the FGA client at the boundary so every downstream consumer
+  // (services + readyz) sees the same instrumented instance.
+  const fga = new MetricsFgaClient(
+    createFgaClient({
+      apiUrl: env.OPENFGA_API_URL,
+      storeId: env.OPENFGA_STORE_ID,
+      authorizationModelId: env.OPENFGA_AUTHORIZATION_MODEL_ID,
+    }),
+    metrics,
+  );
 
   const users = new UsersRepository(db);
   const apiKeysRepo = new ApiKeysRepository(db);
@@ -53,7 +62,15 @@ async function main(): Promise<void> {
     }),
   };
 
-  const app = await buildApp({ env, fga, db, auth, services });
+  const app = await buildApp({
+    env,
+    fga,
+    db,
+    auth,
+    services,
+    metrics,
+    migrationsCheck: buildMigrationsCheck(db),
+  });
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {

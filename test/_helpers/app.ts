@@ -127,6 +127,7 @@ export async function buildTestApp(): Promise<TestApp> {
     SUPABASE_JWT_AUDIENCE: jwt.audience,
     CORS_ALLOWED_ORIGINS: [],
     SHUTDOWN_TIMEOUT_MS: 30_000,
+    METRICS_PORT: 9090,
   };
 
   const app = await buildApp({

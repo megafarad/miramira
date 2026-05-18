@@ -101,4 +101,32 @@ describe.skipIf(!(await isDbReachable()))('OutboxRepository', () => {
     const claimedAgain = await outbox.claimBatch(10);
     expect(claimedAgain).toHaveLength(0);
   });
+
+  it('countPending / countDead / oldestPendingAt report queue depth', async () => {
+    const { db } = getTestDb();
+    expect(await outbox.countPending()).toBe(0);
+    expect(await outbox.countDead()).toBe(0);
+    expect(await outbox.oldestPendingAt()).toBeNull();
+
+    for (let i = 0; i < 3; i++) {
+      await db.transaction(async (tx) => {
+        await outbox.enqueue(tx, {
+          aggregateType: 'tenant',
+          aggregateId: MASTER_TENANT_ID,
+          payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+        });
+      });
+    }
+
+    expect(await outbox.countPending()).toBe(3);
+    expect(await outbox.countDead()).toBe(0);
+    const oldest = await outbox.oldestPendingAt();
+    expect(oldest).toBeInstanceOf(Date);
+
+    // Dead-letter one event; pending drops by one, dead bumps to one.
+    const batch = await outbox.claimBatch(10);
+    await outbox.markDead(batch[0]!.id, 'too many tries');
+    expect(await outbox.countPending()).toBe(2);
+    expect(await outbox.countDead()).toBe(1);
+  });
 });

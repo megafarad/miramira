@@ -6,6 +6,7 @@ import {
   shouldMarkDead,
   type BackoffConfig,
 } from '../lib/backoff.js';
+import type { Metrics } from '../lib/metrics.js';
 
 export interface WorkerLogger {
   info(obj: Record<string, unknown>, msg: string): void;
@@ -13,10 +14,22 @@ export interface WorkerLogger {
   error(obj: Record<string, unknown>, msg: string): void;
 }
 
+// Subset of the Metrics bundle the worker actually emits — keeps the dep
+// surface minimal for tests that build a partial registry.
+export type WorkerMetrics = Pick<
+  Metrics,
+  | 'outboxBatchClaimedTotal'
+  | 'outboxEventsAckedTotal'
+  | 'outboxEventsFailedTotal'
+  | 'outboxEventsDeadTotal'
+  | 'outboxBatchDurationMs'
+>;
+
 export interface OutboxWorkerDeps {
   outbox: OutboxRepo;
   dispatcher: OutboxDispatcher;
   logger?: WorkerLogger;
+  metrics?: WorkerMetrics;
   backoff?: BackoffConfig;
   batchSize?: number;
   idlePollMs?: number;
@@ -40,12 +53,14 @@ export class OutboxWorker {
   private readonly idlePollMs: number;
   private readonly backoff: BackoffConfig;
   private readonly logger: WorkerLogger | undefined;
+  private readonly metrics: WorkerMetrics | undefined;
 
   constructor(private readonly deps: OutboxWorkerDeps) {
     this.batchSize = deps.batchSize ?? DEFAULT_BATCH;
     this.idlePollMs = deps.idlePollMs ?? DEFAULT_IDLE_POLL_MS;
     this.backoff = deps.backoff ?? DEFAULT_BACKOFF;
     this.logger = deps.logger;
+    this.metrics = deps.metrics;
   }
 
   /**
@@ -56,6 +71,7 @@ export class OutboxWorker {
    * signal stops iteration after the in-flight event finishes.
    */
   async runOnce(signal?: AbortSignal): Promise<RunOnceResult> {
+    const batchStart = Date.now();
     const events = await this.deps.outbox.claimBatch(this.batchSize);
     if (events.length === 0) {
       return { claimed: 0, acked: 0, failed: 0, dead: 0, abandoned: 0 };
@@ -107,6 +123,14 @@ export class OutboxWorker {
         abandoned = events.length - (acked + failed + dead);
         break;
       }
+    }
+
+    if (this.metrics) {
+      this.metrics.outboxBatchClaimedTotal.inc(events.length);
+      if (acked) this.metrics.outboxEventsAckedTotal.inc(acked);
+      if (failed) this.metrics.outboxEventsFailedTotal.inc(failed);
+      if (dead) this.metrics.outboxEventsDeadTotal.inc(dead);
+      this.metrics.outboxBatchDurationMs.observe(Date.now() - batchStart);
     }
 
     return { claimed: events.length, acked, failed, dead, abandoned };

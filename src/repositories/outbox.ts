@@ -39,6 +39,15 @@ export interface OutboxRepo {
   listPending(): Promise<OutboxEvent[]>;
   /** Dead-letter rows. Operators query this to see what needs intervention. */
   listDead(): Promise<OutboxEvent[]>;
+  /** Count of pending (unprocessed, not dead) events. Used by the metrics gauge. */
+  countPending(): Promise<number>;
+  /** Count of dead-letter events. Used by the metrics gauge. */
+  countDead(): Promise<number>;
+  /**
+   * Earliest `next_retry_at` among pending events, or null if the queue is
+   * empty. The metrics layer derives `oldest_pending_age_ms` from this.
+   */
+  oldestPendingAt(): Promise<Date | null>;
 }
 
 export class OutboxRepository implements OutboxRepo {
@@ -134,6 +143,45 @@ export class OutboxRepository implements OutboxRepo {
   async listDead(): Promise<OutboxEvent[]> {
     return this.db.select().from(outboxEvents).where(isNotNull(outboxEvents.deadAt));
   }
+
+  async countPending(): Promise<number> {
+    const rows = await this.db.execute<{ n: string }>(sql`
+      SELECT count(*)::text AS n
+      FROM ${outboxEvents}
+      WHERE processed_at IS NULL AND dead_at IS NULL
+    `);
+    return parseCount(rows[0]?.n);
+  }
+
+  async countDead(): Promise<number> {
+    const rows = await this.db.execute<{ n: string }>(sql`
+      SELECT count(*)::text AS n
+      FROM ${outboxEvents}
+      WHERE dead_at IS NOT NULL
+    `);
+    return parseCount(rows[0]?.n);
+  }
+
+  async oldestPendingAt(): Promise<Date | null> {
+    // postgres-js returns timestamptz as a string when the query is raw SQL
+    // (the Drizzle column-type metadata that auto-parses to Date doesn't
+    // apply here). Coerce so callers get a Date regardless of driver path.
+    const rows = await this.db.execute<{ t: string | Date | null }>(sql`
+      SELECT min(next_retry_at) AS t
+      FROM ${outboxEvents}
+      WHERE processed_at IS NULL AND dead_at IS NULL
+    `);
+    const raw = rows[0]?.t ?? null;
+    if (raw === null) return null;
+    return raw instanceof Date ? raw : new Date(raw);
+  }
+}
+
+// count(*) comes back as a Postgres bigint, which postgres-js exposes as a
+// string to avoid JS Number truncation. Our queue won't approach 2^53 rows.
+function parseCount(value: string | undefined): number {
+  if (value === undefined) return 0;
+  return Number(value);
 }
 
 export type { OutboxEvent } from '../db/schema.js';

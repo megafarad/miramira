@@ -3,11 +3,19 @@ import type { FgaClient } from '../openfga/client.js';
 import type { Database } from '../db/client.js';
 import { sql } from 'drizzle-orm';
 
+export interface HealthCheckResult {
+  healthy: boolean;
+  latencyMs: number;
+}
+
 export interface HealthRoutesOptions {
   // Explicit `| undefined` so callers may spread `{ fga: maybeFga }` without
   // tripping `exactOptionalPropertyTypes`.
   fga?: FgaClient | undefined;
   db?: Database | undefined;
+  // When supplied, /readyz also verifies the DB has at least as many
+  // migrations applied as this build expects. See db/migration-status.ts.
+  migrationsCheck?: (() => Promise<HealthCheckResult>) | undefined;
 }
 
 export const healthRoutes = (opts: HealthRoutesOptions = {}): FastifyPluginAsync => {
@@ -18,7 +26,7 @@ export const healthRoutes = (opts: HealthRoutesOptions = {}): FastifyPluginAsync
     // Readiness: report on each downstream we know about. 503 if any are
     // configured-but-unhealthy.
     app.get('/readyz', async (_req, reply) => {
-      const checks: Record<string, { healthy: boolean; latencyMs: number }> = {};
+      const checks: Record<string, HealthCheckResult> = {};
 
       if (opts.fga) {
         checks.openfga = await opts.fga.readinessProbe();
@@ -31,6 +39,9 @@ export const healthRoutes = (opts: HealthRoutesOptions = {}): FastifyPluginAsync
         } catch {
           checks.postgres = { healthy: false, latencyMs: Date.now() - start };
         }
+      }
+      if (opts.migrationsCheck) {
+        checks.migrations = await opts.migrationsCheck();
       }
 
       const allHealthy = Object.values(checks).every((c) => c.healthy);
