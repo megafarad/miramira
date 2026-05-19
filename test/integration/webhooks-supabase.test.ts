@@ -5,6 +5,7 @@ import { isFgaReachable } from '../_helpers/fga.js';
 import { buildTestApp, TEST_WEBHOOK_SECRET, type TestApp } from '../_helpers/app.js';
 import { UsersRepository } from '../../src/repositories/users.js';
 import { PrincipalsRepository } from '../../src/repositories/principals.js';
+import { SECRET_PREFIX } from '../../src/lib/standard-webhooks.js';
 import { auditLog } from '../../src/db/schema.js';
 import { eq } from 'drizzle-orm';
 
@@ -21,8 +22,8 @@ function signedPayload(
   const eventId = opts.eventId ?? 'evt_test_1';
   const ts = String(opts.nowSec ?? Math.floor(Date.now() / 1000));
   const payload = JSON.stringify(body);
-  const stripped = TEST_WEBHOOK_SECRET.startsWith('whsec_')
-    ? TEST_WEBHOOK_SECRET.slice('whsec_'.length)
+  const stripped = TEST_WEBHOOK_SECRET.startsWith(SECRET_PREFIX)
+    ? TEST_WEBHOOK_SECRET.slice(SECRET_PREFIX.length)
     : TEST_WEBHOOK_SECRET;
   const sig = createHmac('sha256', Buffer.from(stripped, 'base64'))
     .update(`${eventId}.${ts}.${payload}`)
@@ -178,7 +179,7 @@ describe.skipIf(!reachable)('routes: POST /webhooks/supabase', () => {
     // be the failure point.
     const ts = headers['webhook-timestamp']!;
     const id = headers['webhook-id']!;
-    const stripped = TEST_WEBHOOK_SECRET.slice('whsec_'.length);
+    const stripped = TEST_WEBHOOK_SECRET.slice(SECRET_PREFIX.length);
     const sig = createHmac('sha256', Buffer.from(stripped, 'base64'))
       .update(`${id}.${ts}.${garbage}`)
       .digest('base64');

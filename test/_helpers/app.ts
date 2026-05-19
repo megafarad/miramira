@@ -84,7 +84,7 @@ let counter = 0;
 
 // Shared secret used by buildTestApp() AND by webhook test signers. Exported
 // so signing helpers can produce signatures the test server will accept.
-export const TEST_WEBHOOK_SECRET = 'whsec_dGVzdC13ZWJob29rLXNlY3JldA==';
+export const TEST_WEBHOOK_SECRET = 'v1,whsec_dGVzdC13ZWJob29rLXNlY3JldA==';
 
 export async function buildTestApp(): Promise<TestApp> {
   const fgaCtx = await createTestFga();

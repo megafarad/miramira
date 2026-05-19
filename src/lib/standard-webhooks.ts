@@ -19,7 +19,7 @@ export interface VerifyInput {
   signature: string;
   /** Raw request body bytes. */
   body: Buffer;
-  /** Shared secret. The `whsec_` prefix is accepted and stripped. */
+  /** Shared secret. The `v1,whsec_` prefix shown in the Supabase UI is accepted and stripped. */
   secret: string;
   /** Override for tests. Defaults to Date.now(). */
   now?: number;
@@ -37,7 +37,12 @@ export type VerifyFailureReason =
   | 'signature_mismatch';
 
 const DEFAULT_TOLERANCE_SECONDS = 300;
-const SECRET_PREFIX = 'whsec_';
+/**
+ * Prefix shown by the Supabase web UI on Auth Hook secrets, accepted and
+ * stripped by `decodeSecret`. Exported so test helpers can sign with the
+ * same prefix-aware logic the verifier uses — single source of truth.
+ */
+export const SECRET_PREFIX = 'v1,whsec_';
 
 export function verifyStandardWebhook(input: VerifyInput): VerifyResult {
   if (!input.id || !input.timestamp || !input.signature) {

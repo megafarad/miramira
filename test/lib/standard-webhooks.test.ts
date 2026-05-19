@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { verifyStandardWebhook } from '../../src/lib/standard-webhooks.js';
+import { SECRET_PREFIX, verifyStandardWebhook } from '../../src/lib/standard-webhooks.js';
 
-const SECRET = 'whsec_dGVzdC1zZWNyZXQ='; // 'test-secret' base64
+// Format matches what the Supabase UI shows for an Auth Hook secret:
+// `v1,whsec_<base64>`. The base64 payload below decodes to 'test-secret'.
+const SECRET = `${SECRET_PREFIX}dGVzdC1zZWNyZXQ=`;
 const BODY = Buffer.from('{"hello":"world"}', 'utf8');
 const EVENT_ID = 'evt_01HZX0K2D9X';
 // Frozen "now" used for deterministic timestamp arithmetic.
@@ -10,7 +12,7 @@ const NOW_MS = 1_750_000_000_000;
 const NOW_TS = String(Math.floor(NOW_MS / 1000));
 
 function sign(secret: string, id: string, timestamp: string, body: Buffer): string {
-  const stripped = secret.startsWith('whsec_') ? secret.slice('whsec_'.length) : secret;
+  const stripped = secret.startsWith(SECRET_PREFIX) ? secret.slice(SECRET_PREFIX.length) : secret;
   const key = Buffer.from(stripped, 'base64');
   const sig = createHmac('sha256', key)
     .update(`${id}.${timestamp}.${body.toString('utf8')}`)
@@ -92,7 +94,7 @@ describe('verifyStandardWebhook', () => {
   });
 
   it('rejects signatures computed with a different secret', () => {
-    const bad = sign('whsec_d3Jvbmctc2VjcmV0', EVENT_ID, NOW_TS, BODY); // 'wrong-secret'
+    const bad = sign(`${SECRET_PREFIX}d3Jvbmctc2VjcmV0`, EVENT_ID, NOW_TS, BODY); // 'wrong-secret'
     const result = verifyStandardWebhook({
       id: EVENT_ID,
       timestamp: NOW_TS,
@@ -145,9 +147,11 @@ describe('verifyStandardWebhook', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('strips the whsec_ prefix from the configured secret', () => {
+  it('strips the v1,whsec_ prefix from the configured secret', () => {
+    // Signer uses the bare base64; verifier gets the UI-formatted form with
+    // the v1,whsec_ prefix. Both must produce the same HMAC key.
     const withPrefix = SECRET;
-    const withoutPrefix = SECRET.slice('whsec_'.length);
+    const withoutPrefix = SECRET.slice(SECRET_PREFIX.length);
     const sig = sign(withoutPrefix, EVENT_ID, NOW_TS, BODY);
     const result = verifyStandardWebhook({
       id: EVENT_ID,
