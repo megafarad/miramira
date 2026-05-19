@@ -29,6 +29,13 @@ const envSchema = z
     SUPABASE_JWT_ISSUER: z.string(),
     SUPABASE_JWT_AUDIENCE: z.string().default('authenticated'),
 
+    // Standard Webhooks shared secret for POST /webhooks/supabase. When
+    // unset, the route isn't registered (dev-friendly default; required only
+    // when the Supabase project actually points an Auth Hook at this server).
+    // Accepts the raw secret or the conventional `whsec_<base64>` form —
+    // the verifier strips the prefix.
+    SUPABASE_WEBHOOK_SECRET: z.string().min(1).optional(),
+
     // Comma-separated list of origins allowed by CORS. In production the env
     // must set this explicitly; in development we fall back to common local-dev
     // frontend ports.

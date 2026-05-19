@@ -10,6 +10,7 @@ import { apiKeysRoutes } from './routes/api-keys.js';
 import { roleBindingsRoutes } from './routes/role-bindings.js';
 import { checkRoutes } from './routes/check.js';
 import { adminOutboxRoutes } from './routes/admin-outbox.js';
+import { webhooksSupabaseRoutes } from './routes/webhooks-supabase.js';
 import type { Env } from './config/env.js';
 import type { FgaClient } from './openfga/client.js';
 import type { Database } from './db/client.js';
@@ -21,6 +22,7 @@ import type { ApiKeysService } from './services/api-keys.js';
 import type { RoleBindingsService } from './services/role-bindings.js';
 import type { PermissionsService } from './services/permissions.js';
 import type { OutboxAdminService } from './services/outbox-admin.js';
+import type { UserProvisioningService } from './services/user-provisioning.js';
 import { auditPlugin } from './plugins/audit.js';
 import { authPlugin } from './plugins/auth.js';
 import { authorizePlugin } from './plugins/authorize.js';
@@ -41,6 +43,7 @@ export interface AppServices {
   bindings: RoleBindingsService;
   permissions: PermissionsService;
   outboxAdmin: OutboxAdminService;
+  userProvisioning: UserProvisioningService;
 }
 
 export interface BuildAppOptions {
@@ -123,6 +126,19 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       await app.register(checkRoutes({ permissions: opts.services.permissions }));
       await app.register(adminOutboxRoutes({ outboxAdmin: opts.services.outboxAdmin }));
     }
+  }
+
+  // Supabase webhook receiver is unauthenticated (HMAC is the auth) and
+  // independent of the user-facing API surface, so it sits outside the
+  // `opts.auth` block. Only registered when the operator has provisioned a
+  // shared secret AND the userProvisioning service is wired.
+  if (opts.env.SUPABASE_WEBHOOK_SECRET && opts.services) {
+    await app.register(
+      webhooksSupabaseRoutes({
+        userProvisioning: opts.services.userProvisioning,
+        secret: opts.env.SUPABASE_WEBHOOK_SECRET,
+      }),
+    );
   }
 
   await app.register(

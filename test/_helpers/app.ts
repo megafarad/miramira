@@ -29,6 +29,7 @@ import { ApiKeysServiceImpl } from '../../src/services/api-keys.js';
 import { RoleBindingsServiceImpl } from '../../src/services/role-bindings.js';
 import { PermissionsServiceImpl } from '../../src/services/permissions.js';
 import { OutboxAdminServiceImpl } from '../../src/services/outbox-admin.js';
+import { UserProvisioningServiceImpl } from '../../src/services/user-provisioning.js';
 import { GrantMaterializerImpl } from '../../src/services/grant-materializer.js';
 
 import { OutboxDispatcherImpl } from '../../src/workers/dispatcher.js';
@@ -80,6 +81,10 @@ export interface TestApp {
 
 let counter = 0;
 
+// Shared secret used by buildTestApp() AND by webhook test signers. Exported
+// so signing helpers can produce signatures the test server will accept.
+export const TEST_WEBHOOK_SECRET = 'whsec_dGVzdC13ZWJob29rLXNlY3JldA==';
+
 export async function buildTestApp(): Promise<TestApp> {
   const fgaCtx = await createTestFga();
   const { db } = getTestDb();
@@ -113,6 +118,7 @@ export async function buildTestApp(): Promise<TestApp> {
       users,
     }),
     outboxAdmin: new OutboxAdminServiceImpl({ db }),
+    userProvisioning: new UserProvisioningServiceImpl({ db }),
   };
 
   const env: Env = {
@@ -130,6 +136,9 @@ export async function buildTestApp(): Promise<TestApp> {
     CORS_ALLOWED_ORIGINS: [],
     SHUTDOWN_TIMEOUT_MS: 30_000,
     METRICS_PORT: 9090,
+    // Enables the /webhooks/supabase route in tests. The same secret is
+    // re-imported by signing helpers so they sign payloads the route accepts.
+    SUPABASE_WEBHOOK_SECRET: TEST_WEBHOOK_SECRET,
   };
 
   const app = await buildApp({

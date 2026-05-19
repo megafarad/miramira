@@ -78,6 +78,8 @@ for the full list with defaults.
 | `SUPABASE_JWT_AUDIENCE`           | no       | Defaults to `authenticated`                                                            |
 | `CORS_ALLOWED_ORIGINS`            | prod     | Comma-separated. Required when `NODE_ENV=production`.                                  |
 | `BOOTSTRAP_ADMIN_EMAIL`           | no       | If set, `db:seed` grants admin at the master tenant. Without it, every request 403s.   |
+| `SUPABASE_WEBHOOK_SECRET`         | no       | When set, registers `POST /webhooks/supabase` for Supabase Auth Hook events. Standard Webhooks signed. |
+| `METRICS_PORT`                    | no       | Worker's `/metrics` port (default `9090`). API server exposes `/metrics` on its main port. |
 | `HOST` / `PORT` / `LOG_LEVEL`     | no       | Defaults: `0.0.0.0`, `4000`, `info`                                                    |
 
 ## Authentication

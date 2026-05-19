@@ -147,6 +147,33 @@ DELETE FROM outbox_events WHERE id = '<event-id>' AND dead_at IS NOT NULL;
 SQL-driven changes do NOT write an `audit_log` row — prefer the API path
 when an audit trail matters.
 
+## Supabase webhook receiver
+
+When `SUPABASE_WEBHOOK_SECRET` is set, the server exposes
+`POST /webhooks/supabase` to receive Supabase Auth Hook events. The route
+authenticates via the [Standard Webhooks](https://www.standardwebhooks.com)
+signature scheme — the HMAC IS the auth.
+
+For `before-user-created` events, the handler upserts a local `users` row
+keyed on the email hash and ensures a `principals` row exists. The
+`supabase_user_id` column is intentionally NOT populated from the hook
+payload (Supabase fires a placeholder id before the row commits); it's
+backfilled instead on the user's first authenticated request via the
+existing JWT lookup chain in `services/authentication.ts`.
+
+Each handled event writes one `audit_log` row:
+
+- `action`: `user.provision`
+- `target_type`: `user`
+- `target_id`: the local user PK
+- `actor_principal_id`: `null` (webhooks are unauthenticated)
+- `actor_kind`: `null`
+- `route`: `/webhooks/supabase`
+
+Unsupported `metadata.name` values are logged at info and ack'd with 204 so
+Supabase doesn't retry them forever — adding new event handlers is
+additive.
+
 ## Shutdown behavior
 
 Both the HTTP server (`npm start`) and the outbox worker (`npm run worker`)
