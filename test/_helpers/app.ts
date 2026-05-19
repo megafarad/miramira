@@ -29,6 +29,7 @@ import { ScopesServiceImpl } from '../../src/services/scopes.js';
 import { ApiKeysServiceImpl } from '../../src/services/api-keys.js';
 import { RoleBindingsServiceImpl } from '../../src/services/role-bindings.js';
 import { PermissionsServiceImpl } from '../../src/services/permissions.js';
+import { AuditServiceImpl } from '../../src/services/audit.js';
 import { OutboxAdminServiceImpl } from '../../src/services/outbox-admin.js';
 import { UserProvisioningServiceImpl } from '../../src/services/user-provisioning.js';
 import { UsersServiceImpl } from '../../src/services/users.js';
@@ -124,6 +125,7 @@ export async function buildTestApp(): Promise<TestApp> {
     outboxAdmin: new OutboxAdminServiceImpl({ db }),
     userProvisioning: new UserProvisioningServiceImpl({ db }),
     users: new UsersServiceImpl({ db }),
+    audit: new AuditServiceImpl({ db }),
   };
 
   const env: Env = {

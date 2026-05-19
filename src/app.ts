@@ -9,6 +9,7 @@ import { scopesRoutes } from './routes/scopes.js';
 import { apiKeysRoutes } from './routes/api-keys.js';
 import { roleBindingsRoutes } from './routes/role-bindings.js';
 import { checkRoutes } from './routes/check.js';
+import { adminAuditRoutes } from './routes/admin-audit.js';
 import { adminOutboxRoutes } from './routes/admin-outbox.js';
 import { usersRoutes } from './routes/users.js';
 import { webhooksSupabaseRoutes } from './routes/webhooks-supabase.js';
@@ -22,6 +23,7 @@ import type { ScopesService } from './services/scopes.js';
 import type { ApiKeysService } from './services/api-keys.js';
 import type { RoleBindingsService } from './services/role-bindings.js';
 import type { PermissionsService } from './services/permissions.js';
+import type { AuditService } from './services/audit.js';
 import type { OutboxAdminService } from './services/outbox-admin.js';
 import type { UserProvisioningService } from './services/user-provisioning.js';
 import type { UsersService } from './services/users.js';
@@ -47,6 +49,7 @@ export interface AppServices {
   outboxAdmin: OutboxAdminService;
   userProvisioning: UserProvisioningService;
   users: UsersService;
+  audit: AuditService;
 }
 
 export interface BuildAppOptions {
@@ -128,6 +131,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       );
       await app.register(checkRoutes({ permissions: opts.services.permissions }));
       await app.register(adminOutboxRoutes({ outboxAdmin: opts.services.outboxAdmin }));
+      await app.register(adminAuditRoutes({ audit: opts.services.audit }));
       await app.register(usersRoutes({ users: opts.services.users }));
     }
   }

@@ -19,6 +19,7 @@ import { ScopesServiceImpl } from './services/scopes.js';
 import { ApiKeysServiceImpl } from './services/api-keys.js';
 import { RoleBindingsServiceImpl } from './services/role-bindings.js';
 import { PermissionsServiceImpl } from './services/permissions.js';
+import { AuditServiceImpl } from './services/audit.js';
 import { OutboxAdminServiceImpl } from './services/outbox-admin.js';
 import { UserProvisioningServiceImpl } from './services/user-provisioning.js';
 import { UsersServiceImpl } from './services/users.js';
@@ -76,6 +77,7 @@ async function main(): Promise<void> {
     outboxAdmin: new OutboxAdminServiceImpl({ db }),
     userProvisioning: new UserProvisioningServiceImpl({ db }),
     users: new UsersServiceImpl({ db }),
+    audit: new AuditServiceImpl({ db }),
   };
 
   const app = await buildApp({

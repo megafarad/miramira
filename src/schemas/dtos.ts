@@ -151,3 +151,24 @@ export const RevokeAllBindingsResultDto = z.object({
   revoked: z.number().int(),
   bindingIds: z.array(z.string().uuid()),
 });
+
+// Audit log entry as returned by /admin/audit. `before` and `after` are
+// arbitrary JSON snapshots (shape varies per action), so we leave them
+// unconstrained on the wire.
+export const AuditEntryDto = z.object({
+  id: z.string().uuid(),
+  actorPrincipalId: z.string().uuid().nullable(),
+  actorKind: z.string().nullable(),
+  requestId: z.string(),
+  method: z.string(),
+  route: z.string(),
+  action: z.string(),
+  targetType: z.string(),
+  targetId: z.string().uuid().nullable(),
+  tenantId: z.string().uuid().nullable(),
+  before: z.unknown(),
+  after: z.unknown(),
+  ip: z.string().nullable(),
+  userAgent: z.string().nullable(),
+  createdAt: Timestamp,
+});

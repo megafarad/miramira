@@ -104,6 +104,12 @@ export async function seedSystemData(db: DbOrTx): Promise<void> {
         name: SYSTEM_SCOPE_NAMES.usersWrite,
         description: 'Disable, enable, soft-delete, or bulk-revoke bindings for a user.',
       },
+      {
+        id: SYSTEM_SCOPE_IDS.auditRead,
+        tenantId: MASTER_TENANT_ID,
+        name: SYSTEM_SCOPE_NAMES.auditRead,
+        description: 'Read the audit_log table via /admin/audit.',
+      },
     ])
     .onConflictDoNothing({ target: scopes.id });
 

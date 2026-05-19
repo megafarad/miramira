@@ -329,6 +329,9 @@ export const auditLog = pgTable(
       .on(t.tenantId, t.createdAt)
       .where(sql`${t.tenantId} IS NOT NULL`),
     index('audit_log_created_at_idx').on(t.createdAt),
+    // Lookup by request_id — operators debugging "what happened in this
+    // request" expect a fast lookup once the table grows.
+    index('audit_log_request_id_idx').on(t.requestId),
   ],
 );
 

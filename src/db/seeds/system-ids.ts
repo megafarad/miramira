@@ -24,6 +24,7 @@ export const SYSTEM_SCOPE_IDS = {
   outboxWrite: '019e2e5d-3ef8-75ad-85c6-d5cd1a82e342',
   usersRead: '019e2e5d-3ef8-75ad-85c6-d8de3c5f9101',
   usersWrite: '019e2e5d-3ef8-75ad-85c6-daff2a3c81d4',
+  auditRead: '019e2e5d-3ef8-75ad-85c6-dd1f8e2a4067',
 } as const;
 
 export const SYSTEM_SCOPE_NAMES = {
@@ -44,4 +45,7 @@ export const SYSTEM_SCOPE_NAMES = {
   // rows. Write: disable/enable, bulk-revoke a user's bindings, soft-delete.
   usersRead: 'users:read',
   usersWrite: 'users:write',
+  // Read access to the audit_log table. No corresponding write scope —
+  // audit rows are produced by the system, never edited or deleted.
+  auditRead: 'audit:read',
 } as const;
