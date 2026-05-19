@@ -38,7 +38,10 @@ const authPluginInner: FastifyPluginAsync<AuthPluginOptions> = async (app, opts)
     }
     const token = authHeader.slice('Bearer '.length).trim();
     if (!token) throw new AuthError('empty Bearer token');
-    req.principal = await auth.authenticateJwt(token);
+    // auditContext is needed by authenticateJwt to record user.email_change
+    // entries when the JWT's email claim differs from the local row. The
+    // audit plugin is registered before this one, so the decorator exists.
+    req.principal = await auth.authenticateJwt(token, req.auditContext());
   };
 
   app.decorate('requireAuth', requireAuth);

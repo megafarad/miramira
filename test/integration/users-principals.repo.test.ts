@@ -47,6 +47,29 @@ describe.skipIf(!(await isDbReachable()))('UsersRepository', () => {
     expect(first?.supabaseUserId).toBe('sub-carol');
     expect(second?.supabaseUserId).toBe('sub-carol');
   });
+
+  it('updateEmail rewrites both the raw email and the email_id hash', async () => {
+    const u = await users.upsertByEmailId('old@example.com');
+    const after = await users.updateEmail(u.id, 'new@example.com');
+    expect(after?.email).toBe('new@example.com');
+    expect(after?.emailId).toBe(emailId('new@example.com'));
+    // Subsequent lookups by the new email find the row; lookups by the old
+    // email no longer do.
+    expect(await users.findByEmail('new@example.com')).toBeDefined();
+    expect(await users.findByEmail('old@example.com')).toBeUndefined();
+  });
+
+  it('updateEmail returns null when the new email already belongs to another user', async () => {
+    const other = await users.upsertByEmailId('taken@example.com');
+    const u = await users.upsertByEmailId('moving@example.com');
+    const result = await users.updateEmail(u.id, 'taken@example.com');
+    expect(result).toBeNull();
+    // Source row is untouched.
+    const refreshed = await users.findById(u.id);
+    expect(refreshed?.email).toBe('moving@example.com');
+    // Conflicting row also untouched.
+    expect((await users.findById(other.id))?.email).toBe('taken@example.com');
+  });
 });
 
 describe.skipIf(!(await isDbReachable()))('PrincipalsRepository', () => {

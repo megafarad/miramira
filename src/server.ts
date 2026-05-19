@@ -8,6 +8,7 @@ import { createMetricsRegistry } from './lib/metrics.js';
 import { createRemoteJwks } from './lib/jwt.js';
 import { withShutdownTimeout } from './lib/shutdown.js';
 import { ApiKeysRepository } from './repositories/api-keys.js';
+import { AuditLogRepository } from './repositories/audit-log.js';
 import { PrincipalsRepository } from './repositories/principals.js';
 import { ScopesRepository } from './repositories/scopes.js';
 import { UsersRepository } from './repositories/users.js';
@@ -48,6 +49,15 @@ async function main(): Promise<void> {
     jwks: createRemoteJwks({ jwksUrl: env.SUPABASE_JWKS_URL }),
     jwtIssuer: env.SUPABASE_JWT_ISSUER,
     jwtAudience: env.SUPABASE_JWT_AUDIENCE,
+    auditLog: new AuditLogRepository(db),
+    // Standalone logger because the Fastify app doesn't exist yet at this
+    // point and email-reconciliation warnings need to surface somewhere.
+    // Matches the worker process's structured-JSON-via-console pattern.
+    logger: {
+      warn: (obj: Record<string, unknown>, msg: string): void => {
+        console.warn(JSON.stringify({ level: 'warn', msg, ...obj }));
+      },
+    },
   });
 
   const services: AppServices = {

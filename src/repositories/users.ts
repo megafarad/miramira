@@ -10,6 +10,13 @@ export interface UsersRepo {
   findBySupabaseId(supabaseUserId: string): Promise<User | undefined>;
   findByEmail(email: string): Promise<User | undefined>;
   backfillSupabaseId(userId: string, supabaseUserId: string): Promise<User | undefined>;
+  /**
+   * Replace the email on an existing row. Updates both `email` (raw) and
+   * `email_id` (hash) so future lookups by either still resolve. Returns
+   * `null` if the new email's hash collides with another user — callers
+   * should treat this as a soft failure (log + continue), not throw.
+   */
+  updateEmail(userId: string, newEmail: string): Promise<User | null>;
 }
 
 export class UsersRepository implements UsersRepo {
@@ -69,6 +76,40 @@ export class UsersRepository implements UsersRepo {
       .returning();
     return row;
   }
+
+  async updateEmail(userId: string, newEmail: string): Promise<User | null> {
+    const newEmailIdHash = computeEmailId(newEmail);
+    try {
+      const [row] = await this.db
+        .update(users)
+        .set({ email: newEmail, emailId: newEmailIdHash, updatedAt: sql`now()` })
+        .where(eq(users.id, userId))
+        .returning();
+      return row ?? null;
+    } catch (err) {
+      // Uniqueness conflict on users_email_id_uq: another local user already
+      // owns this email. Signal to the caller via null so they can decide
+      // whether to fail the request or proceed with the stale email.
+      if (isUniqueViolation(err, 'users_email_id_uq')) return null;
+      throw err;
+    }
+  }
+}
+
+// postgres-js surfaces Postgres errors as objects with `code` (SQLSTATE) and
+// `constraint_name`. 23505 is unique_violation; the constraint discriminates
+// which unique index tripped. Drizzle sometimes re-throws the PostgresError
+// directly and sometimes wraps it in another Error with a `cause`, so we
+// walk the chain. Narrow guard so we don't swallow unrelated errors that
+// happen to be thrown from the same code path.
+function isUniqueViolation(err: unknown, constraint: string): boolean {
+  for (let cur: unknown = err; cur !== undefined && cur !== null; ) {
+    if (typeof cur !== 'object') return false;
+    const e = cur as { code?: unknown; constraint_name?: unknown; cause?: unknown };
+    if (e.code === '23505' && e.constraint_name === constraint) return true;
+    cur = e.cause;
+  }
+  return false;
 }
 
 export type { User } from '../db/schema.js';

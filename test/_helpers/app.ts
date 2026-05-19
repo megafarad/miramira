@@ -16,6 +16,7 @@ import type { FgaClient } from '../../src/openfga/client.js';
 import type { Database } from '../../src/db/client.js';
 
 import { ApiKeysRepository } from '../../src/repositories/api-keys.js';
+import { AuditLogRepository } from '../../src/repositories/audit-log.js';
 import { OutboxRepository } from '../../src/repositories/outbox.js';
 import { PrincipalsRepository } from '../../src/repositories/principals.js';
 import { ScopesRepository } from '../../src/repositories/scopes.js';
@@ -95,6 +96,7 @@ export async function buildTestApp(): Promise<TestApp> {
   const principals = new PrincipalsRepository(db);
   const scopesRepo = new ScopesRepository(db);
   const outbox = new OutboxRepository(db);
+  const auditLog = new AuditLogRepository(db);
 
   const auth = new AuthenticationServiceImpl({
     users,
@@ -103,6 +105,7 @@ export async function buildTestApp(): Promise<TestApp> {
     jwks: jwt.jwks,
     jwtIssuer: jwt.issuer,
     jwtAudience: jwt.audience,
+    auditLog,
   });
 
   const services: AppServices = {
