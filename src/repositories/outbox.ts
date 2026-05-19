@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lt, lte, sql, type SQL } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client.js';
 import { newId } from '../lib/ids.js';
 import { outboxEvents, type OutboxEvent } from '../db/schema.js';
@@ -52,11 +52,20 @@ export interface OutboxRepo {
   oldestPendingAt(): Promise<Date | null>;
   /**
    * Paginated list of dead-letter rows, newest first by `id` (UUIDv7 is
-   * time-ordered). Backed by `outbox_events_dead_idx`.
+   * time-ordered). Backed by `outbox_events_dead_idx`. Optional filters
+   * narrow the set without changing the order or cursor semantics.
    */
-  pageDead(opts: PaginationOpts): Promise<PageResult<OutboxEvent>>;
+  pageDead(opts: PaginationOpts & DeadFilter): Promise<PageResult<OutboxEvent>>;
   /** Fetch a single dead-letter row, or null if the id isn't found OR isn't dead. */
   getDead(id: string): Promise<OutboxEvent | null>;
+  /** Count of dead rows matching the given filter. Used for the bulk-call cap check. */
+  countDeadMatching(filter: DeadFilter): Promise<number>;
+  /**
+   * Resolve a filter to a bounded list of dead-event ids. Service layer uses
+   * this to translate a filter-shaped bulk request into an explicit id list
+   * before calling the bulk mutations.
+   */
+  findDeadIdsMatching(filter: DeadFilter, limit: number): Promise<string[]>;
   /**
    * Clear `dead_at`, reset `attempts`/`last_error`, and set `next_retry_at = now()`
    * so the worker picks the event up on its next iteration. Guards on
@@ -70,6 +79,24 @@ export interface OutboxRepo {
    * snapshot, or null if no dead row matched.
    */
   purge(id: string): Promise<OutboxEvent | null>;
+  /**
+   * Bulk revive: clears dead_at / resets attempts on every dead row in `ids`.
+   * Non-dead ids silently fall out via the `dead_at IS NOT NULL` guard.
+   * Returns the rows actually touched so the caller can audit per-row.
+   */
+  reviveBulk(ids: string[]): Promise<OutboxEvent[]>;
+  /**
+   * Bulk purge: deletes every dead row in `ids`. Same `dead_at IS NOT NULL`
+   * guard as `purge`. Returns the deleted rows so the caller can audit
+   * per-row before they're gone.
+   */
+  purgeBulk(ids: string[]): Promise<OutboxEvent[]>;
+}
+
+/** Optional narrowing applied on top of the `dead_at IS NOT NULL` baseline. */
+export interface DeadFilter {
+  eventType?: string;
+  deadBefore?: Date;
 }
 
 export class OutboxRepository implements OutboxRepo {
@@ -198,12 +225,12 @@ export class OutboxRepository implements OutboxRepo {
     return raw instanceof Date ? raw : new Date(raw);
   }
 
-  async pageDead(opts: PaginationOpts): Promise<PageResult<OutboxEvent>> {
+  async pageDead(opts: PaginationOpts & DeadFilter): Promise<PageResult<OutboxEvent>> {
     // Newest first. UUIDv7 ids are time-ordered, so DESC on id mirrors DESC
     // on created_at without needing a composite cursor. lt(id, cursor) walks
     // backwards through the sorted set.
     const where = and(
-      isNotNull(outboxEvents.deadAt),
+      ...deadFilterPredicates(opts),
       opts.cursor ? lt(outboxEvents.id, opts.cursor) : undefined,
     );
     const rows = await this.db
@@ -246,6 +273,59 @@ export class OutboxRepository implements OutboxRepo {
       .returning();
     return row ?? null;
   }
+
+  async countDeadMatching(filter: DeadFilter): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<string>`count(*)::text` })
+      .from(outboxEvents)
+      .where(and(...deadFilterPredicates(filter)));
+    return parseCount(row?.n);
+  }
+
+  async findDeadIdsMatching(filter: DeadFilter, limit: number): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: outboxEvents.id })
+      .from(outboxEvents)
+      .where(and(...deadFilterPredicates(filter)))
+      .orderBy(desc(outboxEvents.id))
+      .limit(limit);
+    return rows.map((r) => r.id);
+  }
+
+  async reviveBulk(ids: string[]): Promise<OutboxEvent[]> {
+    if (ids.length === 0) return [];
+    return this.db
+      .update(outboxEvents)
+      .set({
+        deadAt: null,
+        attempts: 0,
+        lastError: null,
+        nextRetryAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(and(inArray(outboxEvents.id, ids), isNotNull(outboxEvents.deadAt)))
+      .returning();
+  }
+
+  async purgeBulk(ids: string[]): Promise<OutboxEvent[]> {
+    if (ids.length === 0) return [];
+    return this.db
+      .delete(outboxEvents)
+      .where(and(inArray(outboxEvents.id, ids), isNotNull(outboxEvents.deadAt)))
+      .returning();
+  }
+}
+
+// Predicate list applied wherever we filter dead-letter rows: list/page,
+// counts, id lookup, and the bulk operations. The `isNotNull(deadAt)` clause
+// is the baseline — bulk mutations rely on it to skip non-dead rows even
+// when the caller passes their ids by mistake.
+function deadFilterPredicates(filter: DeadFilter): (SQL | undefined)[] {
+  return [
+    isNotNull(outboxEvents.deadAt),
+    filter.eventType ? eq(outboxEvents.eventType, filter.eventType) : undefined,
+    filter.deadBefore ? lte(outboxEvents.deadAt, filter.deadBefore) : undefined,
+  ];
 }
 
 // count(*) comes back as a Postgres bigint, which postgres-js exposes as a

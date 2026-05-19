@@ -3,23 +3,50 @@
 //
 // Authorization: outbox events aren't tenant-scoped, so every scope check
 // resolves to MASTER_TENANT_ID. Read endpoints require `outbox:read`; the
-// two mutating endpoints require `outbox:write`. Both scopes ship with the
+// mutating endpoints require `outbox:write`. Both scopes ship with the
 // system `admin` role.
 
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import type { OutboxAdminService } from '../services/outbox-admin.js';
+import { BULK_CAP, type BulkSelector, type OutboxAdminService } from '../services/outbox-admin.js';
 import { Envelope, ErrorResponse, Page, PaginationQuery } from '../schemas/envelopes.js';
-import { OutboxEventDto } from '../schemas/dtos.js';
+import { BulkOutboxResultDto, OutboxEventDto } from '../schemas/dtos.js';
 import { MASTER_TENANT_ID } from '../db/seeds/system-ids.js';
 
 const OutboxIdParams = z.object({ id: z.string().uuid() });
 
+// Querystring extension for GET /admin/outbox/dead — same filter shape that
+// bulk endpoints accept, so operators can preview a bulk call.
+const ListQuery = PaginationQuery.extend({
+  eventType: z.string().min(1).optional(),
+  deadBefore: z.coerce.date().optional(),
+});
+
+// Bulk body: explicit ids OR filter. Both branches use `.strict()` so that
+// passing both `ids` AND `filter` is rejected — otherwise Zod's union would
+// match the first branch and silently ignore the second key. The `.refine`
+// on the filter variant blocks the match-everything payload.
+const BulkBody = z.union([
+  z.object({ ids: z.array(z.string().uuid()).min(1).max(BULK_CAP) }).strict(),
+  z
+    .object({
+      filter: z
+        .object({
+          eventType: z.string().min(1).optional(),
+          deadBefore: z.coerce.date().optional(),
+        })
+        .refine((f) => f.eventType !== undefined || f.deadBefore !== undefined, {
+          message: 'filter must include at least one of eventType or deadBefore',
+        }),
+    })
+    .strict(),
+]);
+
 const TAG = 'admin-outbox';
 
 // Outbox is a system-level queue; scope checks always target the master
-// tenant. Centralised so all four routes use the same resolver.
+// tenant. Centralised so all routes use the same resolver.
 const tenantOfRequest = (): string => MASTER_TENANT_ID;
 
 export interface AdminOutboxRoutesDeps {
@@ -35,8 +62,9 @@ export const adminOutboxRoutes = (deps: AdminOutboxRoutesDeps): FastifyPluginAsy
       {
         schema: {
           tags: [TAG],
-          summary: 'List dead-letter outbox events (newest first)',
-          querystring: PaginationQuery,
+          summary:
+            'List dead-letter outbox events (newest first); supports eventType + deadBefore filters',
+          querystring: ListQuery,
           response: {
             200: Page(OutboxEventDto),
             401: ErrorResponse,
@@ -46,10 +74,12 @@ export const adminOutboxRoutes = (deps: AdminOutboxRoutesDeps): FastifyPluginAsy
         preHandler: [app.requireAuth, app.requireScope('outbox:read', tenantOfRequest)],
       },
       async (req) => {
-        const { limit, cursor } = req.query;
+        const { limit, cursor, eventType, deadBefore } = req.query;
         const { items, nextCursor } = await deps.outboxAdmin.pageDead({
           limit,
           ...(cursor !== undefined ? { cursor } : {}),
+          ...(eventType !== undefined ? { eventType } : {}),
+          ...(deadBefore !== undefined ? { deadBefore } : {}),
         });
         return { data: items, pageInfo: { nextCursor, hasMore: nextCursor !== null } };
       },
@@ -100,6 +130,31 @@ export const adminOutboxRoutes = (deps: AdminOutboxRoutesDeps): FastifyPluginAsy
       },
     );
 
+    r.post(
+      '/admin/outbox/dead/revive',
+      {
+        schema: {
+          tags: [TAG],
+          summary: `Revive up to ${BULK_CAP} dead events by id list or filter`,
+          body: BulkBody,
+          response: {
+            200: Envelope(BulkOutboxResultDto),
+            400: ErrorResponse,
+            401: ErrorResponse,
+            403: ErrorResponse,
+          },
+        },
+        preHandler: [app.requireAuth, app.requireScope('outbox:write', tenantOfRequest)],
+      },
+      async (req) => {
+        const result = await deps.outboxAdmin.bulkRevive(
+          normalizeSelector(req.body),
+          req.auditContext(),
+        );
+        return { data: result };
+      },
+    );
+
     r.delete(
       '/admin/outbox/dead/:id',
       {
@@ -121,5 +176,41 @@ export const adminOutboxRoutes = (deps: AdminOutboxRoutesDeps): FastifyPluginAsy
         return reply.code(204).send(null);
       },
     );
+
+    r.delete(
+      '/admin/outbox/dead',
+      {
+        schema: {
+          tags: [TAG],
+          summary: `Permanently delete up to ${BULK_CAP} dead events by id list or filter`,
+          body: BulkBody,
+          response: {
+            200: Envelope(BulkOutboxResultDto),
+            400: ErrorResponse,
+            401: ErrorResponse,
+            403: ErrorResponse,
+          },
+        },
+        preHandler: [app.requireAuth, app.requireScope('outbox:write', tenantOfRequest)],
+      },
+      async (req) => {
+        const result = await deps.outboxAdmin.bulkPurge(
+          normalizeSelector(req.body),
+          req.auditContext(),
+        );
+        return { data: result };
+      },
+    );
   };
 };
+
+// Zod under exactOptionalPropertyTypes infers optional fields as `T | undefined`,
+// but DeadFilter declares them as plain `T?`. Strip undefined keys at the
+// boundary so the service's BulkSelector type narrows cleanly.
+function normalizeSelector(body: z.infer<typeof BulkBody>): BulkSelector {
+  if ('ids' in body) return { ids: body.ids };
+  const f: { eventType?: string; deadBefore?: Date } = {};
+  if (body.filter.eventType !== undefined) f.eventType = body.filter.eventType;
+  if (body.filter.deadBefore !== undefined) f.deadBefore = body.filter.deadBefore;
+  return { filter: f };
+}

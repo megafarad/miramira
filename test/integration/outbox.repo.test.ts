@@ -233,4 +233,114 @@ describe.skipIf(!(await isDbReachable()))('OutboxRepository', () => {
     expect(await outbox.purge(live.id)).toBeNull();
     expect(await outbox.getDead(live.id)).toBeNull();
   });
+
+  it('pageDead, countDeadMatching, findDeadIdsMatching honor eventType + deadBefore filters', async () => {
+    const { db } = getTestDb();
+    // Two event types so filtering on eventType has something to discriminate.
+    const tenantIds: string[] = [];
+    const bindingIds: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const e = await db.transaction(async (tx) =>
+        outbox.enqueue(tx, {
+          aggregateType: 'tenant',
+          aggregateId: MASTER_TENANT_ID,
+          payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+        }),
+      );
+      await outbox.markDead(e.id, 't');
+      tenantIds.push(e.id);
+    }
+    for (let i = 0; i < 2; i++) {
+      const e = await db.transaction(async (tx) =>
+        outbox.enqueue(tx, {
+          aggregateType: 'role_binding',
+          aggregateId: MASTER_TENANT_ID,
+          payload: { kind: 'role_binding.revoked', bindingId: 'b' },
+        }),
+      );
+      await outbox.markDead(e.id, 'rb');
+      bindingIds.push(e.id);
+    }
+
+    expect(await outbox.countDeadMatching({})).toBe(5);
+    expect(await outbox.countDeadMatching({ eventType: 'tenant.created' })).toBe(3);
+    expect(await outbox.countDeadMatching({ eventType: 'role_binding.revoked' })).toBe(2);
+
+    const tenantOnly = await outbox.pageDead({ limit: 10, eventType: 'tenant.created' });
+    expect(tenantOnly.items.map((r) => r.id).sort()).toEqual([...tenantIds].sort());
+
+    const ids = await outbox.findDeadIdsMatching({ eventType: 'role_binding.revoked' }, 10);
+    expect(ids.sort()).toEqual([...bindingIds].sort());
+
+    // deadBefore filter: everything is dead "now-ish", so a future cutoff
+    // matches all; a past cutoff matches none.
+    const future = new Date(Date.now() + 60_000);
+    const past = new Date(Date.now() - 60 * 60_000);
+    expect(await outbox.countDeadMatching({ deadBefore: future })).toBe(5);
+    expect(await outbox.countDeadMatching({ deadBefore: past })).toBe(0);
+  });
+
+  it('reviveBulk revives dead rows and silently skips non-dead ids', async () => {
+    const { db } = getTestDb();
+    const deadIds: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const e = await db.transaction(async (tx) =>
+        outbox.enqueue(tx, {
+          aggregateType: 'tenant',
+          aggregateId: MASTER_TENANT_ID,
+          payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+        }),
+      );
+      await outbox.markDead(e.id, 'boom');
+      deadIds.push(e.id);
+    }
+    // Add one live (non-dead) event so we can verify the guard skips it.
+    const live = await db.transaction(async (tx) =>
+      outbox.enqueue(tx, {
+        aggregateType: 'tenant',
+        aggregateId: MASTER_TENANT_ID,
+        payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+      }),
+    );
+
+    const revived = await outbox.reviveBulk([...deadIds, live.id]);
+    expect(revived.map((r) => r.id).sort()).toEqual([...deadIds].sort());
+    for (const row of revived) {
+      expect(row.deadAt).toBeNull();
+      expect(row.attempts).toBe(0);
+      expect(row.lastError).toBeNull();
+    }
+    // Empty input is a no-op, not an error.
+    expect(await outbox.reviveBulk([])).toEqual([]);
+  });
+
+  it('purgeBulk deletes dead rows and silently skips non-dead ids', async () => {
+    const { db } = getTestDb();
+    const deadIds: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const e = await db.transaction(async (tx) =>
+        outbox.enqueue(tx, {
+          aggregateType: 'tenant',
+          aggregateId: MASTER_TENANT_ID,
+          payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+        }),
+      );
+      await outbox.markDead(e.id, 'boom');
+      deadIds.push(e.id);
+    }
+    const live = await db.transaction(async (tx) =>
+      outbox.enqueue(tx, {
+        aggregateType: 'tenant',
+        aggregateId: MASTER_TENANT_ID,
+        payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+      }),
+    );
+
+    const deleted = await outbox.purgeBulk([...deadIds, live.id]);
+    expect(deleted.map((r) => r.id).sort()).toEqual([...deadIds].sort());
+    expect(await outbox.countDead()).toBe(0);
+    // Live event still around — it wasn't dead, so the guard skipped it.
+    expect(await outbox.listPending()).toHaveLength(1);
+    expect(await outbox.purgeBulk([])).toEqual([]);
+  });
 });

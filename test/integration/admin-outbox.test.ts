@@ -4,6 +4,8 @@ import { isFgaReachable } from '../_helpers/fga.js';
 import { buildTestApp, type TestApp } from '../_helpers/app.js';
 import { OutboxRepository } from '../../src/repositories/outbox.js';
 import { MASTER_TENANT_ID } from '../../src/db/seeds/system-ids.js';
+import { auditLog } from '../../src/db/schema.js';
+import { eq } from 'drizzle-orm';
 
 const reachable = (await isDbReachable()) && (await isFgaReachable());
 
@@ -181,5 +183,263 @@ describe.skipIf(!reachable)('routes: /admin/outbox/dead', () => {
       headers: { authorization: `Bearer ${user.token}` },
     });
     expect(res.statusCode).toBe(403);
+  });
+
+  describe('filter on GET /admin/outbox/dead', () => {
+    async function seedMixed(): Promise<{ tenantIds: string[]; bindingIds: string[] }> {
+      const { db } = getTestDb();
+      const tenantIds: string[] = [];
+      const bindingIds: string[] = [];
+      for (let i = 0; i < 2; i++) {
+        const evt = await db.transaction(async (tx) =>
+          outbox.enqueue(tx, {
+            aggregateType: 'tenant',
+            aggregateId: MASTER_TENANT_ID,
+            payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+          }),
+        );
+        await outbox.markDead(evt.id, `t-${i}`);
+        tenantIds.push(evt.id);
+      }
+      for (let i = 0; i < 3; i++) {
+        const evt = await db.transaction(async (tx) =>
+          outbox.enqueue(tx, {
+            aggregateType: 'role_binding',
+            aggregateId: MASTER_TENANT_ID,
+            payload: { kind: 'role_binding.revoked', bindingId: 'b' },
+          }),
+        );
+        await outbox.markDead(evt.id, `rb-${i}`);
+        bindingIds.push(evt.id);
+      }
+      return { tenantIds, bindingIds };
+    }
+
+    it('returns only matching rows for eventType', async () => {
+      const admin = await t.adminToken();
+      const { tenantIds } = await seedMixed();
+      const res = await t.app.inject({
+        method: 'GET',
+        url: '/admin/outbox/dead?eventType=tenant.created&limit=50',
+        headers: { authorization: `Bearer ${admin.token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json<{ data: { id: string; eventType: string }[] }>();
+      expect(body.data.map((r) => r.id).sort()).toEqual([...tenantIds].sort());
+      expect(body.data.every((r) => r.eventType === 'tenant.created')).toBe(true);
+    });
+
+    it('returns nothing when deadBefore predates all events', async () => {
+      const admin = await t.adminToken();
+      await seedMixed();
+      const past = new Date(Date.now() - 60 * 60_000).toISOString();
+      const res = await t.app.inject({
+        method: 'GET',
+        url: `/admin/outbox/dead?deadBefore=${encodeURIComponent(past)}`,
+        headers: { authorization: `Bearer ${admin.token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json<{ data: unknown[] }>();
+      expect(body.data).toEqual([]);
+    });
+  });
+
+  describe('POST /admin/outbox/dead/revive (bulk)', () => {
+    async function seedDead(count: number): Promise<string[]> {
+      const { db } = getTestDb();
+      const ids: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const evt = await db.transaction(async (tx) =>
+          outbox.enqueue(tx, {
+            aggregateType: 'tenant',
+            aggregateId: MASTER_TENANT_ID,
+            payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+          }),
+        );
+        await outbox.markDead(evt.id, `boom-${i}`);
+        ids.push(evt.id);
+      }
+      return ids;
+    }
+
+    it('revives the events named by ids and skips non-dead ones', async () => {
+      const admin = await t.adminToken();
+      const ids = await seedDead(3);
+
+      const res = await t.app.inject({
+        method: 'POST',
+        url: '/admin/outbox/dead/revive',
+        headers: { authorization: `Bearer ${admin.token}` },
+        payload: { ids },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json<{ data: { count: number; ids: string[] } }>();
+      expect(body.data.count).toBe(3);
+      expect(body.data.ids.sort()).toEqual([...ids].sort());
+
+      // All revived; queue is now drainable.
+      const drain = await t.worker.runOnce();
+      expect(drain.acked).toBeGreaterThan(0);
+    });
+
+    it('revives events matched by an eventType filter', async () => {
+      const admin = await t.adminToken();
+      const { db } = getTestDb();
+      const tenantEvt = await db.transaction(async (tx) =>
+        outbox.enqueue(tx, {
+          aggregateType: 'tenant',
+          aggregateId: MASTER_TENANT_ID,
+          payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+        }),
+      );
+      await outbox.markDead(tenantEvt.id, 't');
+      const otherEvt = await db.transaction(async (tx) =>
+        outbox.enqueue(tx, {
+          aggregateType: 'role_binding',
+          aggregateId: MASTER_TENANT_ID,
+          payload: { kind: 'role_binding.revoked', bindingId: 'b' },
+        }),
+      );
+      await outbox.markDead(otherEvt.id, 'rb');
+
+      const res = await t.app.inject({
+        method: 'POST',
+        url: '/admin/outbox/dead/revive',
+        headers: { authorization: `Bearer ${admin.token}` },
+        payload: { filter: { eventType: 'tenant.created' } },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json<{ data: { count: number; ids: string[] } }>();
+      expect(body.data.count).toBe(1);
+      expect(body.data.ids).toEqual([tenantEvt.id]);
+
+      // role_binding event still dead.
+      expect(await outbox.getDead(otherEvt.id)).not.toBeNull();
+    });
+
+    it('rejects empty body (neither ids nor filter)', async () => {
+      const admin = await t.adminToken();
+      const res = await t.app.inject({
+        method: 'POST',
+        url: '/admin/outbox/dead/revive',
+        headers: { authorization: `Bearer ${admin.token}` },
+        payload: {},
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('rejects a filter with no criteria', async () => {
+      const admin = await t.adminToken();
+      const res = await t.app.inject({
+        method: 'POST',
+        url: '/admin/outbox/dead/revive',
+        headers: { authorization: `Bearer ${admin.token}` },
+        payload: { filter: {} },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('rejects when both ids and filter are supplied', async () => {
+      const admin = await t.adminToken();
+      const ids = await seedDead(1);
+      const res = await t.app.inject({
+        method: 'POST',
+        url: '/admin/outbox/dead/revive',
+        headers: { authorization: `Bearer ${admin.token}` },
+        payload: { ids, filter: { eventType: 'tenant.created' } },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('writes one audit row per revived event with the same request_id', async () => {
+      const admin = await t.adminToken();
+      const ids = await seedDead(2);
+      const { db } = getTestDb();
+      const res = await t.app.inject({
+        method: 'POST',
+        url: '/admin/outbox/dead/revive',
+        headers: { authorization: `Bearer ${admin.token}` },
+        payload: { ids },
+      });
+      expect(res.statusCode).toBe(200);
+
+      const rows = await db.select().from(auditLog).where(eq(auditLog.action, 'outbox.revive'));
+      expect(rows).toHaveLength(2);
+      expect(rows.every((r) => r.requestId === rows[0]?.requestId)).toBe(true);
+      expect(rows.map((r) => r.targetId!).sort()).toEqual([...ids].sort());
+    });
+
+    it('returns 403 when the principal lacks outbox:write', async () => {
+      const user = await t.ensureUser();
+      const ids = await seedDead(1);
+      const res = await t.app.inject({
+        method: 'POST',
+        url: '/admin/outbox/dead/revive',
+        headers: { authorization: `Bearer ${user.token}` },
+        payload: { ids },
+      });
+      expect(res.statusCode).toBe(403);
+    });
+  });
+
+  describe('DELETE /admin/outbox/dead (bulk)', () => {
+    async function seedDead(count: number): Promise<string[]> {
+      const { db } = getTestDb();
+      const ids: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const evt = await db.transaction(async (tx) =>
+          outbox.enqueue(tx, {
+            aggregateType: 'tenant',
+            aggregateId: MASTER_TENANT_ID,
+            payload: { kind: 'tenant.created', tenantId: MASTER_TENANT_ID, parentId: null },
+          }),
+        );
+        await outbox.markDead(evt.id, `boom-${i}`);
+        ids.push(evt.id);
+      }
+      return ids;
+    }
+
+    it('purges the events named by ids and returns 200 with the list', async () => {
+      const admin = await t.adminToken();
+      const ids = await seedDead(3);
+      const res = await t.app.inject({
+        method: 'DELETE',
+        url: '/admin/outbox/dead',
+        headers: { authorization: `Bearer ${admin.token}` },
+        payload: { ids },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json<{ data: { count: number; ids: string[] } }>();
+      expect(body.data.count).toBe(3);
+      expect(body.data.ids.sort()).toEqual([...ids].sort());
+      expect(await outbox.countDead()).toBe(0);
+    });
+
+    it('writes one audit row per purged event', async () => {
+      const admin = await t.adminToken();
+      const ids = await seedDead(2);
+      const { db } = getTestDb();
+      await t.app.inject({
+        method: 'DELETE',
+        url: '/admin/outbox/dead',
+        headers: { authorization: `Bearer ${admin.token}` },
+        payload: { ids },
+      });
+      const rows = await db.select().from(auditLog).where(eq(auditLog.action, 'outbox.purge'));
+      expect(rows).toHaveLength(2);
+      expect(rows.map((r) => r.targetId!).sort()).toEqual([...ids].sort());
+    });
+
+    it('rejects a filter with no criteria', async () => {
+      const admin = await t.adminToken();
+      const res = await t.app.inject({
+        method: 'DELETE',
+        url: '/admin/outbox/dead',
+        headers: { authorization: `Bearer ${admin.token}` },
+        payload: { filter: {} },
+      });
+      expect(res.statusCode).toBe(400);
+    });
   });
 });

@@ -126,3 +126,9 @@ export const OutboxEventDto = z.object({
   deadAt: Timestamp.nullable(),
   updatedAt: Timestamp,
 });
+
+// Result envelope for bulk DLQ revive/purge endpoints.
+export const BulkOutboxResultDto = z.object({
+  count: z.number().int(),
+  ids: z.array(z.string().uuid()),
+});
