@@ -92,6 +92,18 @@ export async function seedSystemData(db: DbOrTx): Promise<void> {
         name: SYSTEM_SCOPE_NAMES.outboxWrite,
         description: 'Revive or permanently delete dead-letter outbox events.',
       },
+      {
+        id: SYSTEM_SCOPE_IDS.usersRead,
+        tenantId: MASTER_TENANT_ID,
+        name: SYSTEM_SCOPE_NAMES.usersRead,
+        description: 'Inspect user rows including disabled and soft-deleted ones.',
+      },
+      {
+        id: SYSTEM_SCOPE_IDS.usersWrite,
+        tenantId: MASTER_TENANT_ID,
+        name: SYSTEM_SCOPE_NAMES.usersWrite,
+        description: 'Disable, enable, soft-delete, or bulk-revoke bindings for a user.',
+      },
     ])
     .onConflictDoNothing({ target: scopes.id });
 

@@ -21,6 +21,7 @@ import { RoleBindingsServiceImpl } from './services/role-bindings.js';
 import { PermissionsServiceImpl } from './services/permissions.js';
 import { OutboxAdminServiceImpl } from './services/outbox-admin.js';
 import { UserProvisioningServiceImpl } from './services/user-provisioning.js';
+import { UsersServiceImpl } from './services/users.js';
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -74,6 +75,7 @@ async function main(): Promise<void> {
     }),
     outboxAdmin: new OutboxAdminServiceImpl({ db }),
     userProvisioning: new UserProvisioningServiceImpl({ db }),
+    users: new UsersServiceImpl({ db }),
   };
 
   const app = await buildApp({

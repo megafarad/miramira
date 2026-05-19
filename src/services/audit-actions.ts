@@ -20,6 +20,10 @@ export const AUDIT_ACTIONS = {
   outboxPurge: 'outbox.purge',
   userProvision: 'user.provision',
   userEmailChange: 'user.email_change',
+  userDisable: 'user.disable',
+  userEnable: 'user.enable',
+  userDelete: 'user.delete',
+  userBindingsRevokeAll: 'user.bindings_revoke_all',
 } as const;
 
 // Canonical target types — match audit_log.target_type.

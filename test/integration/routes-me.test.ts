@@ -80,6 +80,8 @@ describe.skipIf(!reachable)('routes: /me', () => {
         'scopes:write',
         'tenants:read',
         'tenants:write',
+        'users:read',
+        'users:write',
       ].sort(),
     );
   });

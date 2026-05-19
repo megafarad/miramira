@@ -73,9 +73,19 @@ export class AuthenticationServiceImpl implements AuthenticationService {
     if (!user) {
       if (!email) throw new AuthError('cannot resolve user: token has no email claim');
       user = await this.deps.users.upsertByEmailId(email);
+      // upsertByEmailId can collide on `users_email_id_uq` with a soft-deleted
+      // row and return that row. Gate BEFORE backfill — otherwise we'd write a
+      // fresh `supabase_user_id` onto a deleted user, undoing soft-delete's
+      // sub-clearing.
+      if (user.deletedAt) throw new AuthError('user disabled');
       const backfilled = await this.deps.users.backfillSupabaseId(user.id, sub);
       if (backfilled) user = backfilled;
     }
+
+    // 3b. Disabled users are blocked regardless of resolution path. Soft-
+    //     deleted users only reach here via path 3, which gates them above;
+    //     paths 1 and 2 use repo reads that filter `deleted_at IS NULL`.
+    if (user.disabledAt) throw new AuthError('user disabled');
 
     // 4. Reconcile email: when the JWT's email claim differs from what we have
     //    on file, refresh both `email` and `email_id` so subsequent lookups

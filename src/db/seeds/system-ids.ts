@@ -22,6 +22,8 @@ export const SYSTEM_SCOPE_IDS = {
   permissionsCheck: '019e2e5d-3ef8-75ad-85c6-d09a3e8211c5',
   outboxRead: '019e2e5d-3ef8-75ad-85c6-d3ab4f5e7128',
   outboxWrite: '019e2e5d-3ef8-75ad-85c6-d5cd1a82e342',
+  usersRead: '019e2e5d-3ef8-75ad-85c6-d8de3c5f9101',
+  usersWrite: '019e2e5d-3ef8-75ad-85c6-daff2a3c81d4',
 } as const;
 
 export const SYSTEM_SCOPE_NAMES = {
@@ -38,4 +40,8 @@ export const SYSTEM_SCOPE_NAMES = {
   // dead_at + reset retry schedule) or permanently delete a dead row.
   outboxRead: 'outbox:read',
   outboxWrite: 'outbox:write',
+  // Principal lifecycle (user-side). Read: inspect users including soft-deleted
+  // rows. Write: disable/enable, bulk-revoke a user's bindings, soft-delete.
+  usersRead: 'users:read',
+  usersWrite: 'users:write',
 } as const;

@@ -31,6 +31,7 @@ import { RoleBindingsServiceImpl } from '../../src/services/role-bindings.js';
 import { PermissionsServiceImpl } from '../../src/services/permissions.js';
 import { OutboxAdminServiceImpl } from '../../src/services/outbox-admin.js';
 import { UserProvisioningServiceImpl } from '../../src/services/user-provisioning.js';
+import { UsersServiceImpl } from '../../src/services/users.js';
 import { GrantMaterializerImpl } from '../../src/services/grant-materializer.js';
 
 import { OutboxDispatcherImpl } from '../../src/workers/dispatcher.js';
@@ -122,6 +123,7 @@ export async function buildTestApp(): Promise<TestApp> {
     }),
     outboxAdmin: new OutboxAdminServiceImpl({ db }),
     userProvisioning: new UserProvisioningServiceImpl({ db }),
+    users: new UsersServiceImpl({ db }),
   };
 
   const env: Env = {

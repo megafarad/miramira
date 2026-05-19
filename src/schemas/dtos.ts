@@ -132,3 +132,22 @@ export const BulkOutboxResultDto = z.object({
   count: z.number().int(),
   ids: z.array(z.string().uuid()),
 });
+
+// User row as returned by /users/:id and the disable/enable mutations. Email
+// is shown for admin context; supabase_user_id is opaque so we expose it as
+// a plain string. Both lifecycle timestamps are nullable.
+export const UserDto = z.object({
+  id: z.string().uuid(),
+  email: z.string(),
+  supabaseUserId: z.string().nullable(),
+  disabledAt: Timestamp.nullable(),
+  deletedAt: Timestamp.nullable(),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+});
+
+// Result envelope for POST /users/:id/revoke-all-bindings.
+export const RevokeAllBindingsResultDto = z.object({
+  revoked: z.number().int(),
+  bindingIds: z.array(z.string().uuid()),
+});
