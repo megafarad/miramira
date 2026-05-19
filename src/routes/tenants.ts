@@ -145,5 +145,32 @@ export const tenantsRoutes = (deps: TenantsRoutesDeps): FastifyPluginAsync => {
         return { data: tenant };
       },
     );
+
+    r.delete(
+      '/tenants/:id',
+      {
+        schema: {
+          tags: [TAG],
+          summary:
+            'Delete a tenant. Refuses with 409 if the tenant has children, api_keys, or active role_bindings, or is the master tenant.',
+          params: TenantIdParams,
+          response: {
+            204: z.null(),
+            401: ErrorResponse,
+            403: ErrorResponse,
+            404: ErrorResponse,
+            409: ErrorResponse,
+          },
+        },
+        preHandler: [
+          app.requireAuth,
+          app.requireScope('tenants:write', (req) => (req.params as { id: string }).id),
+        ],
+      },
+      async (req, reply) => {
+        await deps.tenants.delete(req.params.id, req.auditContext());
+        return reply.code(204).send(null);
+      },
+    );
   };
 };

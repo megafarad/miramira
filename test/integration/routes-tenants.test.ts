@@ -155,4 +155,135 @@ describe.skipIf(!reachable)('routes: /tenants', () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // DELETE /tenants/:id
+  // ──────────────────────────────────────────────────────────────────────
+
+  // POST /tenants enqueues a tenant.created event; the materializer turns
+  // that into FGA scope_grant tuples (the admin's crosses_boundary role
+  // reaches the new tenant). Until the worker drains, requireScope on the
+  // new tenant 403s. Helper drains everything pending so subsequent calls
+  // see the materialized grants.
+  async function drainAll(): Promise<void> {
+    for (;;) {
+      const res = await t.worker.runOnce();
+      if (res.claimed === 0) break;
+    }
+  }
+
+  it('admin can delete a clean tenant; subsequent GET 404s', async () => {
+    const admin = await t.adminToken();
+    const created = await t.app.inject({
+      method: 'POST',
+      url: '/tenants',
+      headers: { authorization: `Bearer ${admin.token}` },
+      payload: { name: 'doomed', parentId: MASTER_TENANT_ID },
+    });
+    const id = created.json<{ data: { id: string } }>().data.id;
+    await drainAll();
+
+    const del = await t.app.inject({
+      method: 'DELETE',
+      url: `/tenants/${id}`,
+      headers: { authorization: `Bearer ${admin.token}` },
+    });
+    expect(del.statusCode).toBe(204);
+    expect(del.payload).toBe('');
+
+    const get = await t.app.inject({
+      method: 'GET',
+      url: `/tenants/${id}`,
+      headers: { authorization: `Bearer ${admin.token}` },
+    });
+    // Same defensible 403/404 ambiguity as the GET test above.
+    expect([403, 404]).toContain(get.statusCode);
+  });
+
+  it('DELETE 409 when the tenant has child tenants', async () => {
+    const admin = await t.adminToken();
+    const parent = await t.app.inject({
+      method: 'POST',
+      url: '/tenants',
+      headers: { authorization: `Bearer ${admin.token}` },
+      payload: { name: 'parent', parentId: MASTER_TENANT_ID },
+    });
+    const parentId = parent.json<{ data: { id: string } }>().data.id;
+    // Drain so the admin's binding materializes at `parent` before the next
+    // POST tries requireScope('tenants:write', parentId).
+    await drainAll();
+    const child = await t.app.inject({
+      method: 'POST',
+      url: '/tenants',
+      headers: { authorization: `Bearer ${admin.token}` },
+      payload: { name: 'child', parentId },
+    });
+    expect(child.statusCode).toBe(200);
+    await drainAll();
+
+    const del = await t.app.inject({
+      method: 'DELETE',
+      url: `/tenants/${parentId}`,
+      headers: { authorization: `Bearer ${admin.token}` },
+    });
+    expect(del.statusCode).toBe(409);
+    expect(del.json<{ error: string }>().error).toContain('child tenant');
+  });
+
+  it('DELETE 409 when the tenant has api_keys', async () => {
+    const admin = await t.adminToken();
+    const tenant = await t.app.inject({
+      method: 'POST',
+      url: '/tenants',
+      headers: { authorization: `Bearer ${admin.token}` },
+      payload: { name: 'keyed', parentId: MASTER_TENANT_ID },
+    });
+    const id = tenant.json<{ data: { id: string } }>().data.id;
+    await drainAll();
+    const key = await t.app.inject({
+      method: 'POST',
+      url: '/api-keys',
+      headers: { authorization: `Bearer ${admin.token}` },
+      payload: { label: 'k', tenantId: id },
+    });
+    expect(key.statusCode).toBe(201);
+
+    const del = await t.app.inject({
+      method: 'DELETE',
+      url: `/tenants/${id}`,
+      headers: { authorization: `Bearer ${admin.token}` },
+    });
+    expect(del.statusCode).toBe(409);
+    expect(del.json<{ error: string }>().error).toContain('api_key');
+  });
+
+  it('DELETE 409 when the tenant is master', async () => {
+    const admin = await t.adminToken();
+    const res = await t.app.inject({
+      method: 'DELETE',
+      url: `/tenants/${MASTER_TENANT_ID}`,
+      headers: { authorization: `Bearer ${admin.token}` },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json<{ error: string }>().error).toContain('master');
+  });
+
+  it('DELETE 403 when caller lacks tenants:write', async () => {
+    const admin = await t.adminToken();
+    const created = await t.app.inject({
+      method: 'POST',
+      url: '/tenants',
+      headers: { authorization: `Bearer ${admin.token}` },
+      payload: { name: 'guarded', parentId: MASTER_TENANT_ID },
+    });
+    const id = created.json<{ data: { id: string } }>().data.id;
+
+    const user = await t.ensureUser();
+    const res = await t.app.inject({
+      method: 'DELETE',
+      url: `/tenants/${id}`,
+      headers: { authorization: `Bearer ${user.token}` },
+    });
+    expect(res.statusCode).toBe(403);
+  });
 });

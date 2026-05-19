@@ -5,6 +5,7 @@
 export const AUDIT_ACTIONS = {
   tenantCreate: 'tenant.create',
   tenantUpdate: 'tenant.update',
+  tenantDelete: 'tenant.delete',
   roleCreate: 'role.create',
   roleUpdate: 'role.update',
   roleScopeAdd: 'role.scope_add',

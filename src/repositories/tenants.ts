@@ -1,7 +1,7 @@
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client.js';
 import { newId } from '../lib/ids.js';
-import { tenants, type NewTenant, type Tenant } from '../db/schema.js';
+import { apiKeys, roleBindings, tenants, type NewTenant, type Tenant } from '../db/schema.js';
 import type { PaginationOpts, PageResult } from '../schemas/envelopes.js';
 import { paginate } from '../lib/pagination.js';
 
@@ -23,6 +23,15 @@ export interface TenantsRepo {
   getAncestors(tenantId: string): Promise<Tenant[]>;
   getEffectiveDescendants(tenantId: string, crossesBoundary: boolean): Promise<Tenant[]>;
   delete(id: string): Promise<boolean>;
+  /** Direct-child count. Used by the delete-blocker checks. */
+  countChildren(id: string): Promise<number>;
+  /** Any-state api_key count (active OR revoked). Used by the delete-blocker checks. */
+  countApiKeys(id: string): Promise<number>;
+  /**
+   * Count of role_bindings at this tenant that are still active
+   * (not revoked and not expired). Used by the delete-blocker checks.
+   */
+  countActiveBindings(id: string): Promise<number>;
 }
 
 export class TenantsRepository implements TenantsRepo {
@@ -133,6 +142,36 @@ export class TenantsRepository implements TenantsRepo {
       .where(eq(tenants.id, id))
       .returning({ id: tenants.id });
     return result.length > 0;
+  }
+
+  async countChildren(id: string): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<string>`count(*)::text` })
+      .from(tenants)
+      .where(eq(tenants.parentId, id));
+    return Number(row?.n ?? '0');
+  }
+
+  async countApiKeys(id: string): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<string>`count(*)::text` })
+      .from(apiKeys)
+      .where(eq(apiKeys.tenantId, id));
+    return Number(row?.n ?? '0');
+  }
+
+  async countActiveBindings(id: string): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<string>`count(*)::text` })
+      .from(roleBindings)
+      .where(
+        and(
+          eq(roleBindings.tenantId, id),
+          isNull(roleBindings.revokedAt),
+          or(isNull(roleBindings.expiresAt), gt(roleBindings.expiresAt, sql`now()`)),
+        ),
+      );
+    return Number(row?.n ?? '0');
   }
 }
 
