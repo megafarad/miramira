@@ -4,6 +4,10 @@ on:
   pull_request:
   push:
     branches: [master]
+    # Version tags (e.g. v1.2.3) publish a release image to GHCR via the
+    # docker-publish job. Distinct from the `helm-v*` tags that publish the
+    # Helm chart (see publish-helm.yml).
+    tags: ['v*.*.*']
 
 # Cancel in-flight runs for the same ref when a new commit lands.
 concurrency:
