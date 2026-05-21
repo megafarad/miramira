@@ -3,3 +3,6 @@ dist
 coverage
 *.md
 src/db/migrations
+# Helm charts: templates are Go-templated YAML (not parseable by prettier),
+# and charts/ is vendored. Lint/format these with helm, not prettier.
+deploy/helm
