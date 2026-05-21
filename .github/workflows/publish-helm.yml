@@ -1,0 +1,72 @@
+name: Publish Helm chart
+
+# Publishes deploy/helm/miramira to the megafarad Helm repo
+# (https://megafarad.github.io/helm-charts, served from the gh-pages branch of
+# megafarad/helm-charts).
+#
+# Trigger by pushing a tag like `helm-v0.1.0`, or run manually. The published
+# version is whatever is in Chart.yaml — tag the matching value by convention.
+# Re-publishing an already-published version is skipped (released archives are
+# immutable).
+#
+# Requires repo secret HELM_CHARTS_TOKEN: a fine-grained PAT with
+# Contents: read/write on megafarad/helm-charts.
+
+on:
+  push:
+    tags:
+      - "helm-v*"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Package + publish to gh-pages
+    runs-on: ubuntu-latest
+    env:
+      CHART_DIR: deploy/helm/miramira
+      PAGES_URL: https://megafarad.github.io/helm-charts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Build chart dependencies
+        run: |
+          helm repo add openfga https://openfga.github.io/helm-charts
+          # Bundles the OpenFGA subchart into the package so consumers don't
+          # need to resolve it at install time.
+          helm dependency build "$CHART_DIR"
+
+      - name: Package chart
+        id: pkg
+        run: |
+          version=$(helm show chart "$CHART_DIR" | awk '/^version:/ {print $2}')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          mkdir -p .chart-out
+          helm package "$CHART_DIR" -d .chart-out
+
+      - name: Publish to gh-pages
+        env:
+          HELM_CHARTS_TOKEN: ${{ secrets.HELM_CHARTS_TOKEN }}
+        run: |
+          set -e
+          version="${{ steps.pkg.outputs.version }}"
+          tgz="miramira-${version}.tgz"
+          git clone --quiet --branch gh-pages \
+            "https://x-access-token:${HELM_CHARTS_TOKEN}@github.com/megafarad/helm-charts.git" pages
+
+          if [ -f "pages/${tgz}" ]; then
+            echo "::notice::${tgz} already published — skipping (bump Chart.yaml version to release)."
+            exit 0
+          fi
+
+          cp ".chart-out/${tgz}" pages/
+          # --merge keeps every previously published version in the index.
+          helm repo index pages --url "$PAGES_URL" --merge pages/index.yaml
+
+          cd pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${tgz}" index.yaml
+          git commit -m "Publish miramira ${version}"
+          git push origin gh-pages
+          echo "::notice::Published miramira ${version} to ${PAGES_URL}"

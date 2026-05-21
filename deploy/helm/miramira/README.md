@@ -30,12 +30,34 @@ URI, rather than putting credentials in `values.yaml`.
 
 ## Install
 
+From the published Helm repo (OpenFGA is bundled in the package):
+
+```sh
+helm repo add megafarad https://megafarad.github.io/helm-charts
+helm repo update
+
+helm upgrade --install miramira megafarad/miramira \
+  --namespace miramira --create-namespace \
+  -f my-values.yaml
+```
+
+Or from a source checkout:
+
 ```sh
 helm dependency update deploy/helm/miramira
 
 helm upgrade --install miramira deploy/helm/miramira \
   --namespace miramira --create-namespace \
   -f my-values.yaml
+```
+
+### Releasing a new chart version
+
+Bump `version:` in `Chart.yaml`, then push a matching tag — the
+`publish-helm` workflow packages and pushes it to the repo above:
+
+```sh
+git tag helm-v0.2.0 && git push origin helm-v0.2.0
 ```
 
 ## How bootstrap / ordering works
