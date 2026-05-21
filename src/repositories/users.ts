@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db/client.js';
 import { newId } from '../lib/ids.js';
 import { emailId as computeEmailId } from '../lib/email.js';
@@ -6,7 +6,12 @@ import { users, type User } from '../db/schema.js';
 
 export interface UsersRepo {
   upsertByEmailId(email: string): Promise<User>;
+  /**
+   * Find by id, excluding soft-deleted rows. For admin views that need to see
+   * deleted users (e.g. GET /users/:id), use {@link findByIdIncludingDeleted}.
+   */
   findById(id: string): Promise<User | undefined>;
+  findByIdIncludingDeleted(id: string): Promise<User | undefined>;
   findBySupabaseId(supabaseUserId: string): Promise<User | undefined>;
   findByEmail(email: string): Promise<User | undefined>;
   backfillSupabaseId(userId: string, supabaseUserId: string): Promise<User | undefined>;
@@ -17,6 +22,22 @@ export interface UsersRepo {
    * should treat this as a soft failure (log + continue), not throw.
    */
   updateEmail(userId: string, newEmail: string): Promise<User | null>;
+  /**
+   * Set `disabled_at` to now() iff currently null. Returns the row when a
+   * transition happened, or `undefined` if the user was already disabled
+   * (or doesn't exist / is deleted) — lets callers skip audit writes on
+   * idempotent calls.
+   */
+  disable(userId: string): Promise<User | undefined>;
+  /** Inverse of {@link disable}. Returns the row only when a transition happened. */
+  enable(userId: string): Promise<User | undefined>;
+  /**
+   * Set `deleted_at` to now() and null out `supabase_user_id` so the email/sub
+   * can be re-provisioned later without colliding on the unique index. Returns
+   * the updated row, or `undefined` if the row doesn't exist or is already
+   * soft-deleted.
+   */
+  softDelete(userId: string): Promise<User | undefined>;
 }
 
 export class UsersRepository implements UsersRepo {
@@ -44,6 +65,15 @@ export class UsersRepository implements UsersRepo {
   }
 
   async findById(id: string): Promise<User | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, id), isNull(users.deletedAt)))
+      .limit(1);
+    return row;
+  }
+
+  async findByIdIncludingDeleted(id: string): Promise<User | undefined> {
     const [row] = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
     return row;
   }
@@ -52,14 +82,18 @@ export class UsersRepository implements UsersRepo {
     const [row] = await this.db
       .select()
       .from(users)
-      .where(eq(users.supabaseUserId, supabaseUserId))
+      .where(and(eq(users.supabaseUserId, supabaseUserId), isNull(users.deletedAt)))
       .limit(1);
     return row;
   }
 
   async findByEmail(email: string): Promise<User | undefined> {
     const emailIdHash = computeEmailId(email);
-    const [row] = await this.db.select().from(users).where(eq(users.emailId, emailIdHash)).limit(1);
+    const [row] = await this.db
+      .select()
+      .from(users)
+      .where(and(eq(users.emailId, emailIdHash), isNull(users.deletedAt)))
+      .limit(1);
     return row;
   }
 
@@ -93,6 +127,37 @@ export class UsersRepository implements UsersRepo {
       if (isUniqueViolation(err, 'users_email_id_uq')) return null;
       throw err;
     }
+  }
+
+  async disable(userId: string): Promise<User | undefined> {
+    const [row] = await this.db
+      .update(users)
+      .set({ disabledAt: sql`now()`, updatedAt: sql`now()` })
+      .where(and(eq(users.id, userId), isNull(users.disabledAt), isNull(users.deletedAt)))
+      .returning();
+    return row;
+  }
+
+  async enable(userId: string): Promise<User | undefined> {
+    const [row] = await this.db
+      .update(users)
+      .set({ disabledAt: null, updatedAt: sql`now()` })
+      .where(and(eq(users.id, userId), isNotNull(users.disabledAt), isNull(users.deletedAt)))
+      .returning();
+    return row;
+  }
+
+  async softDelete(userId: string): Promise<User | undefined> {
+    const [row] = await this.db
+      .update(users)
+      .set({
+        deletedAt: sql`now()`,
+        supabaseUserId: null,
+        updatedAt: sql`now()`,
+      })
+      .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+      .returning();
+    return row;
   }
 }
 

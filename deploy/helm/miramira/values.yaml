@@ -1,0 +1,165 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# miramira Helm values
+#
+# Things you MUST set before a real deploy are marked « REQUIRED ».
+# Secrets should come from a pre-created Secret (existingSecret) or an external
+# secrets operator — the inline `*.value` fields are for dev/quickstart only.
+# ─────────────────────────────────────────────────────────────────────────────
+
+image:
+  # « REQUIRED » where CI pushes the image (see .github/workflows/ci.yml).
+  repository: ghcr.io/OWNER/miramira
+  # Defaults to .Chart.appVersion when empty. Pin a digest/tag in production.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ── HTTP API deployment ──────────────────────────────────────────────────────
+api:
+  replicaCount: 2
+  port: 4000
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { memory: 384Mi }
+  # Keep >= app SHUTDOWN_TIMEOUT_MS (config.shutdownTimeoutMs) so the watchdog
+  # in src/lib/shutdown.ts can drain before the kubelet SIGKILLs.
+  terminationGracePeriodSeconds: 35
+  # Small preStop pause lets endpoint de-registration propagate before drain,
+  # avoiding requests routed to a pod that's already closing.
+  preStopSleepSeconds: 5
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# ── Outbox worker deployment ─────────────────────────────────────────────────
+# Scales horizontally safely — claimBatch uses FOR UPDATE SKIP LOCKED.
+worker:
+  replicaCount: 1
+  metricsPort: 9090
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 256Mi }
+  terminationGracePeriodSeconds: 35
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ── Non-secret app config (rendered into a ConfigMap, names match env vars) ──
+config:
+  logLevel: info
+  nodeEnv: production
+  shutdownTimeoutMs: 30000
+  # « REQUIRED in production » comma-separated allowed CORS origins.
+  corsAllowedOrigins: ""
+  # « REQUIRED » Supabase JWT verification.
+  supabaseJwksUrl: ""
+  supabaseJwtIssuer: ""
+  supabaseJwtAudience: authenticated
+  # OpenFGA HTTP endpoint. Defaults to the in-cluster subchart service.
+  # Override if you point at an external OpenFGA.
+  openfgaApiUrl: ""
+
+# ── App secret: DATABASE_URL (+ optional Supabase webhook secret) ────────────
+# Prefer existingSecret. Keys inside the Secret must be named exactly
+# DATABASE_URL and SUPABASE_WEBHOOK_SECRET (consumed via envFrom).
+appSecret:
+  existingSecret: ""
+  create: true
+  # « REQUIRED » managed-Postgres URL for the miramira database.
+  databaseUrl: ""
+  # Optional. Set only if a Supabase Auth Hook points at /webhooks/supabase.
+  supabaseWebhookSecret: ""
+
+# ── OpenFGA store/model IDs ──────────────────────────────────────────────────
+# Populated automatically by the post-install/upgrade bootstrap Job and
+# preserved across upgrades via `lookup`. Leave blank unless pinning a known
+# store/model out of band.
+openfgaIds:
+  storeId: ""
+  authorizationModelId: ""
+
+# ── Ingress (API + Supabase webhook) ─────────────────────────────────────────
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: miramira.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# ── Prometheus scraping ──────────────────────────────────────────────────────
+metrics:
+  # ServiceMonitor for the Prometheus Operator. /metrics is unauthenticated on
+  # both api and worker — never expose it via ingress; scrape it in-cluster.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+
+# ── NetworkPolicy (default-off; rules are environment-specific) ──────────────
+networkPolicy:
+  enabled: false
+  # CIDR(s) for the managed Postgres + Supabase egress. {} = allow all egress.
+  egressCidrs: []
+
+serviceAccount:
+  create: true
+  name: ""
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+# ── Bootstrap Job (kubectl sidecar that patches the IDs Secret) ──────────────
+bootstrap:
+  # Any image with `kubectl` works. Verify this one pulls in your environment —
+  # Bitnami reorganised its public Docker catalog in 2025, so you may need a
+  # pinned/mirrored tag or an alternative (e.g. registry.k8s.io/kubectl,
+  # dtzar/helm-kubectl). kubectl minor version should be within +/-1 of the API
+  # server.
+  kubectlImage: bitnami/kubectl:1.31
+
+# ── OpenFGA subchart ─────────────────────────────────────────────────────────
+# Verify these keys against your pinned chart version (helm show values
+# openfga/openfga). OpenFGA reuses your managed Postgres in a separate database.
+openfga:
+  enabled: true
+  replicaCount: 2
+  datastore:
+    engine: postgres
+    # « REQUIRED » Create a separate `openfga` database on the managed instance
+    # first. Prefer a pre-created Secret over an inline URI:
+    #   existingSecret: openfga-datastore
+    #   secretKeys:
+    #     uriKey: OPENFGA_DATASTORE_URI
+    # uri: "postgres://user:pass@managed-host:5432/openfga?sslmode=require"
+    #
+    # applyMigrations (default true) runs `openfga migrate` as a pre-install
+    # hook Job before the server starts; waitForMigrations gates the server on
+    # it. Leave both on.
+    applyMigrations: true
+    waitForMigrations: true

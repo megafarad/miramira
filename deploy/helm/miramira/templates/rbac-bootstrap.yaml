@@ -1,0 +1,52 @@
+{{/*
+  RBAC for the openfga-bootstrap Job: patch the IDs Secret, and roll the
+  api/worker Deployments so they re-read it. Created as a hook (lower weight
+  than the Job) so it exists when the Job runs, and torn down with the release.
+*/}}
+{{- $hookAnnotations := dict
+  "helm.sh/hook" "post-install,post-upgrade"
+  "helm.sh/hook-weight" "-5"
+  "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "miramira.fullname" . }}-bootstrap
+  labels:
+    {{- include "miramira.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml $hookAnnotations | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "miramira.fullname" . }}-bootstrap
+  labels:
+    {{- include "miramira.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml $hookAnnotations | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "patch"]
+    resourceNames:
+      - {{ include "miramira.openfgaIdsSecretName" . }}
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "miramira.fullname" . }}-bootstrap
+  labels:
+    {{- include "miramira.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml $hookAnnotations | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "miramira.fullname" . }}-bootstrap
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "miramira.fullname" . }}-bootstrap
+    namespace: {{ .Release.Namespace }}

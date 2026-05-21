@@ -22,6 +22,20 @@
       "when": 1779048665198,
       "tag": "0002_fantastic_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779208283491,
+      "tag": "0003_principal_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779209926521,
+      "tag": "0004_audit_request_id_idx",
+      "breakpoints": true
     }
   ]
 }

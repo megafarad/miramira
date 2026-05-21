@@ -1,0 +1,108 @@
+{{/*
+  OpenFGA bootstrap. post-install/post-upgrade hook (weight 0, after the
+  bootstrap RBAC at -5). Flow:
+    1. initContainer waits for OpenFGA /healthz, then runs the bootstrap
+       (create/reuse store, write the current model), emitting the IDs to a
+       shared file.
+    2. main container patches those IDs into the IDs Secret and rolls the
+       api/worker Deployments so they re-read it (env is fixed at pod start).
+  The store is reused across upgrades because OPENFGA_STORE_ID is fed in from
+  the (lookup-preserved) IDs Secret.
+*/}}
+{{- $ids := include "miramira.openfgaIdsSecretName" . -}}
+{{- $api := printf "%s-api" (include "miramira.fullname" .) -}}
+{{- $worker := printf "%s-worker" (include "miramira.fullname" .) -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "miramira.fullname" . }}-openfga-bootstrap
+  labels:
+    {{- include "miramira.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openfga-bootstrap
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "miramira.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: openfga-bootstrap
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "miramira.fullname" . }}-bootstrap
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: bootstrap
+          image: {{ include "miramira.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "miramira.configMapName" . }}
+            # Supplies OPENFGA_STORE_ID for reuse (empty on first install).
+            - secretRef:
+                name: {{ $ids }}
+          env:
+            - name: BOOTSTRAP_OUTPUT_PATH
+              value: /shared/fga.env
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "Waiting for OpenFGA at $OPENFGA_API_URL ..."
+              i=0
+              until node -e "fetch(process.env.OPENFGA_API_URL + '/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; do
+                i=$((i+1))
+                if [ "$i" -ge 60 ]; then echo "OpenFGA not ready after ~3m; giving up"; exit 1; fi
+                echo "  not ready, retry $i"; sleep 3
+              done
+              echo "OpenFGA ready; running bootstrap"
+              node dist/openfga/bootstrap.js
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: patch-secret
+          image: {{ .Values.bootstrap.kubectlImage }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            # kubectl caches under $HOME; keep it on the writable scratch dir.
+            - name: HOME
+              value: /tmp
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              set -a
+              . /shared/fga.env
+              set +a
+              echo "Patching {{ $ids }} with store/model IDs"
+              kubectl patch secret {{ $ids }} -n {{ .Release.Namespace }} --type merge \
+                -p "{\"stringData\":{\"OPENFGA_STORE_ID\":\"${OPENFGA_STORE_ID}\",\"OPENFGA_AUTHORIZATION_MODEL_ID\":\"${OPENFGA_AUTHORIZATION_MODEL_ID}\"}}"
+              echo "Rolling api + worker to pick up the model ID"
+              kubectl rollout restart deployment/{{ $api }} deployment/{{ $worker }} -n {{ .Release.Namespace }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: shared
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

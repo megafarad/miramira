@@ -1,0 +1,26 @@
+miramira {{ .Chart.AppVersion }} deployed as release {{ .Release.Name }} in {{ .Release.Namespace }}.
+
+Rollout order (Helm hooks):
+  1. pre-*  : DB migration Job ({{ include "miramira.fullname" . }}-migrate)
+  2. main   : OpenFGA subchart + api/worker Deployments, Services, etc.
+  3. post-* : openfga-bootstrap Job — creates/reuses the store, writes the
+              model, patches {{ include "miramira.openfgaIdsSecretName" . }},
+              and restarts api/worker so they read the model ID.
+
+On a FIRST install the api/worker may briefly crashloop (no model ID yet)
+until the bootstrap Job completes and restarts them. This self-heals.
+
+Check status:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl logs -n {{ .Release.Namespace }} job/{{ include "miramira.fullname" . }}-openfga-bootstrap
+
+Resolved OpenFGA endpoint: {{ include "miramira.openfgaApiUrl" . }}
+
+{{- if not .Values.ingress.enabled }}
+
+No ingress is enabled. Reach the API in-cluster at:
+  {{ include "miramira.fullname" . }}-api.{{ .Release.Namespace }}.svc:{{ .Values.api.port }}
+{{- end }}
+
+Reminder: /metrics is unauthenticated on both api and worker — keep it
+in-cluster (don't route it through ingress).

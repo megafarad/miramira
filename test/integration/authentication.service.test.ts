@@ -140,6 +140,33 @@ describe.skipIf(!(await isDbReachable()))('AuthenticationService (integration)',
       const token = await jwt.sign({ sub: 'sub-no-email' });
       await expect(service.authenticateJwt(token)).rejects.toBeInstanceOf(AuthError);
     });
+
+    it('rejects a JWT for a disabled user', async () => {
+      const u = await users.upsertByEmailId('off@example.com');
+      await users.backfillSupabaseId(u.id, 'sub-off');
+      await users.disable(u.id);
+
+      const token = await jwt.sign({ sub: 'sub-off', email: 'off@example.com' });
+      await expect(service.authenticateJwt(token)).rejects.toBeInstanceOf(AuthError);
+    });
+
+    it('rejects a JWT for a soft-deleted user (sub lookup path)', async () => {
+      // softDelete nulls supabase_user_id; the sub lookup will miss. The email
+      // lookup also filters deleted rows. Path 3 (upsertByEmailId) then hits
+      // the unique index on email_id, returning the deleted row — the gate
+      // there rejects.
+      const u = await users.upsertByEmailId('gone@example.com');
+      await users.backfillSupabaseId(u.id, 'sub-gone');
+      await users.softDelete(u.id);
+
+      const token = await jwt.sign({ sub: 'sub-gone', email: 'gone@example.com' });
+      await expect(service.authenticateJwt(token)).rejects.toBeInstanceOf(AuthError);
+
+      // The deleted user's sub must remain null — the gate before backfill
+      // exists precisely to prevent the auth flow from resurrecting it.
+      const after = await users.findByIdIncludingDeleted(u.id);
+      expect(after?.supabaseUserId).toBeNull();
+    });
   });
 
   describe('email reconciliation', () => {

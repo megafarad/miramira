@@ -53,6 +53,14 @@ export interface RoleBindingsRepo {
    * non-empty result means OTHER roles still grant the (principal, scope).
    */
   findActiveBindingsForPrincipalScope(principalId: string, scopeId: string): Promise<RoleBinding[]>;
+  /** Count of bindings for this principal that are not revoked and not expired. */
+  countActiveForPrincipal(principalId: string): Promise<number>;
+  /**
+   * Revoke every active binding owned by the principal in a single UPDATE.
+   * Returns the rows post-revoke so the service can enqueue one outbox event
+   * per binding and audit the operation.
+   */
+  revokeAllForPrincipal(principalId: string): Promise<RoleBinding[]>;
 }
 
 export class RoleBindingsRepository implements RoleBindingsRepo {
@@ -183,6 +191,23 @@ export class RoleBindingsRepository implements RoleBindingsRepo {
         ),
       );
     return rows.map((r: { rb: RoleBinding }) => r.rb);
+  }
+
+  async countActiveForPrincipal(principalId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<string>`count(*)::text` })
+      .from(roleBindings)
+      .where(and(eq(roleBindings.principalId, principalId), activePredicate()));
+    return Number(row?.n ?? '0');
+  }
+
+  async revokeAllForPrincipal(principalId: string): Promise<RoleBinding[]> {
+    const rows = await this.db
+      .update(roleBindings)
+      .set({ revokedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(and(eq(roleBindings.principalId, principalId), activePredicate()))
+      .returning();
+    return rows;
   }
 }
 

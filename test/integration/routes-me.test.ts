@@ -70,6 +70,7 @@ describe.skipIf(!reachable)('routes: /me', () => {
     expect(names).toEqual(
       [
         'api_keys:manage',
+        'audit:read',
         'bindings:manage',
         'outbox:read',
         'outbox:write',
@@ -80,6 +81,8 @@ describe.skipIf(!reachable)('routes: /me', () => {
         'scopes:write',
         'tenants:read',
         'tenants:write',
+        'users:read',
+        'users:write',
       ].sort(),
     );
   });

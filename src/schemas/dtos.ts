@@ -132,3 +132,43 @@ export const BulkOutboxResultDto = z.object({
   count: z.number().int(),
   ids: z.array(z.string().uuid()),
 });
+
+// User row as returned by /users/:id and the disable/enable mutations. Email
+// is shown for admin context; supabase_user_id is opaque so we expose it as
+// a plain string. Both lifecycle timestamps are nullable.
+export const UserDto = z.object({
+  id: z.string().uuid(),
+  email: z.string(),
+  supabaseUserId: z.string().nullable(),
+  disabledAt: Timestamp.nullable(),
+  deletedAt: Timestamp.nullable(),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+});
+
+// Result envelope for POST /users/:id/revoke-all-bindings.
+export const RevokeAllBindingsResultDto = z.object({
+  revoked: z.number().int(),
+  bindingIds: z.array(z.string().uuid()),
+});
+
+// Audit log entry as returned by /admin/audit. `before` and `after` are
+// arbitrary JSON snapshots (shape varies per action), so we leave them
+// unconstrained on the wire.
+export const AuditEntryDto = z.object({
+  id: z.string().uuid(),
+  actorPrincipalId: z.string().uuid().nullable(),
+  actorKind: z.string().nullable(),
+  requestId: z.string(),
+  method: z.string(),
+  route: z.string(),
+  action: z.string(),
+  targetType: z.string(),
+  targetId: z.string().uuid().nullable(),
+  tenantId: z.string().uuid().nullable(),
+  before: z.unknown(),
+  after: z.unknown(),
+  ip: z.string().nullable(),
+  userAgent: z.string().nullable(),
+  createdAt: Timestamp,
+});

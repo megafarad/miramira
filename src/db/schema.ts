@@ -50,6 +50,13 @@ export const users = pgTable(
     supabaseUserId: text('supabase_user_id'),
     emailId: char('email_id', { length: 64 }).notNull(),
     email: text('email').notNull(),
+    // Reversible admin shut-off. When set, authentication refuses tokens for
+    // this user even if the JWT verifies and bindings still exist.
+    disabledAt: timestamp('disabled_at', { withTimezone: true }),
+    // Soft-delete tombstone. When set, the row is excluded from lookup paths
+    // and authentication refuses unconditionally. Kept in place so audit_log
+    // rows referencing this user via actor/target still resolve.
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
@@ -59,6 +66,12 @@ export const users = pgTable(
   (t) => [
     uniqueIndex('users_email_id_uq').on(t.emailId),
     uniqueIndex('users_supabase_user_id_uq').on(t.supabaseUserId),
+    index('users_disabled_at_idx')
+      .on(t.disabledAt)
+      .where(sql`${t.disabledAt} IS NOT NULL`),
+    index('users_deleted_at_idx')
+      .on(t.deletedAt)
+      .where(sql`${t.deletedAt} IS NOT NULL`),
   ],
 );
 
@@ -316,6 +329,9 @@ export const auditLog = pgTable(
       .on(t.tenantId, t.createdAt)
       .where(sql`${t.tenantId} IS NOT NULL`),
     index('audit_log_created_at_idx').on(t.createdAt),
+    // Lookup by request_id — operators debugging "what happened in this
+    // request" expect a fast lookup once the table grows.
+    index('audit_log_request_id_idx').on(t.requestId),
   ],
 );
 

@@ -1,0 +1,3 @@
+# Downloaded subchart archives — re-fetched via `helm dependency update`.
+# Chart.lock IS committed (pins the resolved version), the .tgz is not.
+charts/*.tgz
