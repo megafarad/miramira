@@ -131,3 +131,33 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  helm:
+    name: Helm chart lint + template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      # Fetch the OpenFGA subchart pinned in Chart.lock (charts/*.tgz is
+      # gitignored). repo add is needed for `dependency build` to resolve it.
+      - name: Build chart dependencies
+        run: |
+          helm repo add openfga https://openfga.github.io/helm-charts
+          helm dependency build deploy/helm/miramira
+      # Dummy-but-valid values for the « REQUIRED » fields so render succeeds.
+      - name: Lint + template
+        run: |
+          VALUES='
+            --set image.repository=ghcr.io/example/miramira
+            --set appSecret.databaseUrl=postgres://u:p@db:5432/miramira
+            --set config.corsAllowedOrigins=https://app.example.com
+            --set config.supabaseJwksUrl=https://x.supabase.co/auth/v1/.well-known/jwks.json
+            --set config.supabaseJwtIssuer=https://x.supabase.co/auth/v1
+            --set openfga.datastore.uri=postgres://u:p@db:5432/openfga
+          '
+          helm lint deploy/helm/miramira $VALUES
+          # Render with the optional templates on too, to catch their errors.
+          helm template miramira deploy/helm/miramira $VALUES \
+            --set ingress.enabled=true \
+            --set metrics.serviceMonitor.enabled=true \
+            --set networkPolicy.enabled=true >/dev/null
