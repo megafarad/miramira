@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, appendFileSync } from 'node:fs';
 import { OpenFgaClient as SdkClient } from '@openfga/sdk';
 import { AUTHORIZATION_MODEL } from './model.js';
 
@@ -50,6 +50,19 @@ async function main(): Promise<void> {
   console.log('\nUpdate your .env with:');
   console.log(`  OPENFGA_STORE_ID=${storeId}`);
   console.log(`  OPENFGA_AUTHORIZATION_MODEL_ID=${modelId}`);
+
+  // Machine-readable output for automated bootstrap. The Kubernetes
+  // bootstrap Job sets BOOTSTRAP_OUTPUT_PATH, then reads this dotenv-format
+  // file and patches the two IDs into a Secret consumed by the api/worker.
+  // Manual/dev runs leave it unset and just copy from the log above.
+  const outputPath = process.env.BOOTSTRAP_OUTPUT_PATH;
+  if (outputPath) {
+    appendFileSync(
+      outputPath,
+      `OPENFGA_STORE_ID=${storeId}\nOPENFGA_AUTHORIZATION_MODEL_ID=${modelId}\n`,
+    );
+    console.log(`\nWrote IDs to ${outputPath}`);
+  }
 }
 
 main().catch((err: unknown) => {

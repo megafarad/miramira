@@ -1,0 +1,10 @@
+.DS_Store
+.git/
+.gitignore
+*.tmp
+*.bak
+*.orig
+.idea/
+.vscode/
+# Local values overrides should not be packaged.
+values-*.local.yaml

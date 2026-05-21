@@ -1,0 +1,45 @@
+{{- if .Values.networkPolicy.enabled }}
+{{/*
+  Default-off because egress targets are environment-specific. As written:
+  ingress to the API port from anywhere in-cluster (tighten to your ingress
+  controller's namespace), and egress to DNS + the listed CIDRs (managed
+  Postgres, Supabase). In-cluster OpenFGA egress is allowed via pod selector.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "miramira.fullname" . }}
+  labels:
+    {{- include "miramira.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "miramira.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: {{ .Values.api.port }}
+        - port: {{ .Values.worker.metricsPort }}
+  egress:
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # In-cluster OpenFGA
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openfga
+    {{- with .Values.networkPolicy.egressCidrs }}
+    # Managed Postgres + Supabase (HTTPS)
+    - to:
+        {{- range . }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+    {{- end }}
+{{- end }}
