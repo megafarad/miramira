@@ -1,0 +1,90 @@
+# Throwaway in-cluster Postgres for LOCAL Kubernetes testing only.
+#
+# The miramira chart treats Postgres as an external/managed service. On a local
+# Docker Desktop cluster there is none, so this stands one up with both
+# databases the stack needs: `miramira` (app) and `openfga` (auth engine).
+#
+# NOT for production: single replica, emptyDir (data is lost on pod restart),
+# trivial credentials. Apply into the same namespace you install the chart in.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pg-init
+  labels:
+    app: pg
+data:
+  # Runs once on first start (empty data dir). POSTGRES_DB below creates
+  # `miramira`; this adds the second database OpenFGA needs.
+  10-openfga-db.sql: |
+    CREATE DATABASE openfga;
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg
+  labels:
+    app: pg
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: pg
+  template:
+    metadata:
+      labels:
+        app: pg
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: miramira
+            - name: POSTGRES_PASSWORD
+              value: miramira
+            - name: POSTGRES_DB
+              value: miramira
+            # initdb writes here; keep it on the emptyDir so the data dir is
+            # writable and the init scripts run on a fresh volume.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          readinessProbe:
+            exec:
+              command: ['pg_isready', '-U', 'miramira', '-d', 'miramira']
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ['pg_isready', '-U', 'miramira']
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: init
+          configMap:
+            name: pg-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg
+  labels:
+    app: pg
+spec:
+  selector:
+    app: pg
+  ports:
+    - port: 5432
+      targetPort: 5432

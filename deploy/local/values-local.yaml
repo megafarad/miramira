@@ -1,0 +1,54 @@
+# Helm values for LOCAL deployment on Docker Desktop Kubernetes.
+#
+#   helm upgrade --install miramira deploy/helm/miramira \
+#     -n miramira -f deploy/local/values-local.yaml
+#
+# Pairs with deploy/local/postgres.yaml (in-cluster Postgres at host `pg`).
+# Supabase values are placeholders: the service boots and /readyz goes green,
+# but real JWT auth needs a real Supabase project. See deploy/local/README.md.
+
+image:
+  # Built locally and imported into the cluster's containerd. IfNotPresent (not
+  # Never) so the already-present miramira:local isn't re-pulled, while the
+  # bootstrap Job's kubectl image — which shares this pullPolicy in the chart —
+  # can still be pulled.
+  repository: miramira
+  tag: local
+  pullPolicy: IfNotPresent
+
+# Single-node local cluster: one of everything, no autoscaling (Docker Desktop
+# has no metrics-server) and no PDB (it would block draining a sole replica).
+api:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+
+worker:
+  replicaCount: 1
+
+config:
+  corsAllowedOrigins: http://localhost:3000
+  # Placeholders — valid URL shape so env validation passes. JWT verification
+  # fails until pointed at a real project, but the service still starts.
+  supabaseJwksUrl: https://placeholder.supabase.co/auth/v1/.well-known/jwks.json
+  supabaseJwtIssuer: https://placeholder.supabase.co/auth/v1
+
+appSecret:
+  create: true
+  databaseUrl: postgres://miramira:miramira@pg:5432/miramira?sslmode=disable
+
+# Match the local API server (v1.34). The chart default works here too; this
+# pins the kubectl minor to the cluster and is already present in containerd.
+bootstrap:
+  kubectlImage: registry.k8s.io/kubectl:v1.34.0
+
+openfga:
+  enabled: true
+  replicaCount: 1
+  datastore:
+    engine: postgres
+    uri: postgres://miramira:miramira@pg:5432/openfga?sslmode=disable
+    applyMigrations: true
+    waitForMigrations: true
