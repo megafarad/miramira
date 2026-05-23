@@ -136,12 +136,11 @@ securityContext:
 
 # ── Bootstrap Job (kubectl sidecar that patches the IDs Secret) ──────────────
 bootstrap:
-  # Any image with `kubectl` works. Verify this one pulls in your environment —
-  # Bitnami reorganised its public Docker catalog in 2025, so you may need a
-  # pinned/mirrored tag or an alternative (e.g. registry.k8s.io/kubectl,
-  # dtzar/helm-kubectl). kubectl minor version should be within +/-1 of the API
-  # server.
-  kubectlImage: bitnami/kubectl:1.31
+  # The kubectl steps run shell-free (kubectl as entrypoint, no `sh -c`), so a
+  # minimal distroless image works — the official registry.k8s.io/kubectl is the
+  # default. Override with any image whose `kubectl` is on PATH. Pick a tag
+  # within +/-1 minor of your API server (these verbs tolerate wider skew).
+  kubectlImage: registry.k8s.io/kubectl:v1.31.0
 
 # ── OpenFGA subchart ─────────────────────────────────────────────────────────
 # Verify these keys against your pinned chart version (helm show values

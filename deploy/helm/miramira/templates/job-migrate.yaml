@@ -23,7 +23,11 @@ spec:
         app.kubernetes.io/component: migrate
     spec:
       restartPolicy: Never
-      serviceAccountName: {{ include "miramira.serviceAccountName" . }}
+      # Pre-install hook: runs before the app ServiceAccount (a main-phase
+      # resource) exists, so it can't pin that SA. Migrations only talk to
+      # Postgres — no Kubernetes API access — so the namespace default SA is
+      # sufficient and its token is not mounted.
+      automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

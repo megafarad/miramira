@@ -1,13 +1,17 @@
 {{/*
   OpenFGA bootstrap. post-install/post-upgrade hook (weight 0, after the
-  bootstrap RBAC at -5). Flow:
-    1. initContainer waits for OpenFGA /healthz, then runs the bootstrap
-       (create/reuse store, write the current model), emitting the IDs to a
-       shared file.
-    2. main container patches those IDs into the IDs Secret and rolls the
-       api/worker Deployments so they re-read it (env is fixed at pod start).
-  The store is reused across upgrades because OPENFGA_STORE_ID is fed in from
-  the (lookup-preserved) IDs Secret.
+  bootstrap RBAC at -5). Flow (all kubectl steps are shell-free so a distroless
+  image like registry.k8s.io/kubectl works):
+    1. initContainer `bootstrap` (app image — has a shell) waits for OpenFGA
+       /healthz, runs the bootstrap (create/reuse store, write the current
+       model), and writes a kubectl JSON merge-patch with the IDs to /shared.
+    2. initContainer `patch-ids` (kubectl) applies that patch file to the IDs
+       Secret — one command, no shell.
+    3. main container `rollout-restart` (kubectl) rolls api/worker so they
+       re-read the Secret (env is fixed at pod start) — one command, no shell.
+  initContainers run in order before the main container, so the patch always
+  lands before the restart. The store is reused across upgrades because
+  OPENFGA_STORE_ID is fed in from the (lookup-preserved) IDs Secret.
 */}}
 {{- $ids := include "miramira.openfgaIdsSecretName" . -}}
 {{- $api := printf "%s-api" (include "miramira.fullname" .) -}}
@@ -65,6 +69,12 @@ spec:
               done
               echo "OpenFGA ready; running bootstrap"
               node dist/openfga/bootstrap.js
+              # Emit a kubectl merge-patch so the (shell-free) kubectl step can
+              # apply it via --patch-file without any shell interpolation.
+              . /shared/fga.env
+              printf '{"stringData":{"OPENFGA_STORE_ID":"%s","OPENFGA_AUTHORIZATION_MODEL_ID":"%s"}}' \
+                "$OPENFGA_STORE_ID" "$OPENFGA_AUTHORIZATION_MODEL_ID" > /shared/patch.json
+              echo "Wrote patch file for {{ $ids }}"
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
           volumeMounts:
@@ -72,33 +82,49 @@ spec:
               mountPath: /shared
             - name: tmp
               mountPath: /tmp
-      containers:
-        - name: patch-secret
+        - name: patch-ids
           image: {{ .Values.bootstrap.kubectlImage }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           env:
-            # kubectl caches under $HOME; keep it on the writable scratch dir.
+            # kubectl caches discovery under $HOME; keep it on writable scratch.
             - name: HOME
               value: /tmp
-          command: ["sh", "-c"]
+          command: ["kubectl"]
           args:
-            - |
-              set -e
-              set -a
-              . /shared/fga.env
-              set +a
-              echo "Patching {{ $ids }} with store/model IDs"
-              kubectl patch secret {{ $ids }} -n {{ .Release.Namespace }} --type merge \
-                -p "{\"stringData\":{\"OPENFGA_STORE_ID\":\"${OPENFGA_STORE_ID}\",\"OPENFGA_AUTHORIZATION_MODEL_ID\":\"${OPENFGA_AUTHORIZATION_MODEL_ID}\"}}"
-              echo "Rolling api + worker to pick up the model ID"
-              kubectl rollout restart deployment/{{ $api }} deployment/{{ $worker }} -n {{ .Release.Namespace }}
+            - patch
+            - secret
+            - {{ $ids }}
+            - --namespace={{ .Release.Namespace }}
+            - --type=merge
+            - --patch-file=/shared/patch.json
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           volumeMounts:
             - name: shared
               mountPath: /shared
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: rollout-restart
+          image: {{ .Values.bootstrap.kubectlImage }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: HOME
+              value: /tmp
+          command: ["kubectl"]
+          args:
+            - rollout
+            - restart
+            - deployment/{{ $api }}
+            - deployment/{{ $worker }}
+            - --namespace={{ .Release.Namespace }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
             - name: tmp
               mountPath: /tmp
       volumes:

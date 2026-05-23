@@ -4,6 +4,14 @@ metadata:
   name: {{ include "miramira.configMapName" . }}
   labels:
     {{- include "miramira.labels" . | nindent 4 }}
+  # Created as an early pre-install/pre-upgrade hook (weight -10, before the
+  # -5 migrate Job) so it exists for the migrate hook — which runs before
+  # main-phase resources. before-hook-creation (not hook-succeeded) keeps it
+  # in place for the main-phase api/worker and the post-install bootstrap.
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation
 data:
   # Keys match env var names — consumed via envFrom on api + worker.
   NODE_ENV: {{ .Values.config.nodeEnv | quote }}
